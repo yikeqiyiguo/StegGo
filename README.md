@@ -393,7 +393,3 @@ git push origin feature/your-feature
 请勿将其用于任何违法活动。使用者需自行承担法律责任。
 
 ---
-
-<div align="center">
-  <sub>Built with ❤️ in Go · <a href="https://github.com/your-username/StegGo">GitHub</a></sub>
-</div>
