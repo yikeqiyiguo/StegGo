@@ -1,0 +1,38 @@
+# ── 编译产物 ─────────────────────────────────────
+*.exe
+*.out
+steggo
+/steggo.exe
+
+# ── 测试输出目录（含隐写文件和提取结果）────────────
+testdata/out/
+testdata/batch_out/
+testdata/batch_secrets/
+testdata/batch_in/
+
+# 隐写输出文件及其 sha256 侧车
+testdata/steg.*
+testdata/*.sha256
+
+# 保留 testdata/carrier.png 供示例使用
+# 但排除可能含敏感内容的秘密文件
+testdata/secret.txt
+
+# ── Go 工具链 ──────────────────────────────────────
+# vendor 目录（如果不使用 vendor 模式）
+vendor/
+
+# Go coverage
+*.coverprofile
+coverage.out
+
+# ── 操作系统 ──────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ──────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
