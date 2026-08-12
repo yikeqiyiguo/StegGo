@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test-linux:
+    name: 测试 (Linux / amd64 / race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: 静态检查
+        run: go vet ./...
+      - name: 单元测试 (含竞态检测)
+        run: go test -race -v ./...
+      - name: 测试覆盖率
+        run: go test -cover ./...
+
+  test-windows:
+    name: 测试 (Windows / amd64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: 构建 CLI 与 TUI
+        run: go build ./cmd/steggo ./cmd/steggo-tui
+      - name: 单元测试
+        run: go test ./...
+
+  test-macos:
+    name: 测试 (macOS / arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: 构建
+        run: go build ./...
+      - name: 单元测试
+        run: go test ./...
+
+  gui-build:
+    name: GUI 编译验证 (Fyne + cgo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: 安装 cgo 依赖 (X11/OpenGL)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc libgl1-mesa-dev xorg-dev
+      - name: 解析 GUI 模块依赖
+        run: cd cmd/steggo-gui && go mod download
+      - name: 编译 GUI
+        run: cd cmd/steggo-gui && CGO_ENABLED=1 go build -v .

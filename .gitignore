@@ -1,38 +1,32 @@
-# ── 编译产物 ─────────────────────────────────────
+# 编译产物
 *.exe
-*.out
+*.dll
+*.so
+*.dylib
 steggo
-/steggo.exe
+steggo-tui
+steggo-gui
 
-# ── 测试输出目录（含隐写文件和提取结果）────────────
-testdata/out/
-testdata/batch_out/
-testdata/batch_secrets/
-testdata/batch_in/
+# 构建输出目录
+/dist/
+/build/
+/bin/
+out/
 
-# 隐写输出文件及其 sha256 侧车
-testdata/steg.*
-testdata/*.sha256
+# 测试与运行产物
+/testdata/out/
+/testdata/e2e-tmp/
+/shares/
+/extracted/
+batch-out/
+/testdata/
 
-# 保留 testdata/carrier.png 供示例使用
-# 但排除可能含敏感内容的秘密文件
-testdata/secret.txt
-
-# ── Go 工具链 ──────────────────────────────────────
-# vendor 目录（如果不使用 vendor 模式）
-vendor/
-
-# Go coverage
-*.coverprofile
-coverage.out
-
-# ── 操作系统 ──────────────────────────────────────
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# ── IDE ──────────────────────────────────────────
+# 编辑器与系统文件
 .idea/
 .vscode/
 *.swp
-*.swo
+.DS_Store
+Thumbs.db
+
+# Fyne 打包缓存
+/tmp/

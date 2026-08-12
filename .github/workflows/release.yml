@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建发布产物
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            cgo: 0
+          - os: linux
+            arch: arm64
+            cgo: 0
+          - os: windows
+            arch: amd64
+            cgo: 0
+            ext: .exe
+          - os: darwin
+            arch: amd64
+            cgo: 0
+          - os: darwin
+            arch: arm64
+            cgo: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: 构建 CLI
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=${{ matrix.cgo }} GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
+            go build -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
+            -o dist/steggo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} ./cmd/steggo
+          CGO_ENABLED=${{ matrix.cgo }} GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
+            go build -ldflags "-s -w" \
+            -o dist/steggo-tui-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} ./cmd/steggo-tui
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: steggo-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/
+
+  gui-windows:
+    name: GUI (Windows 原生)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: 安装 MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+      - name: 构建 GUI
+        shell: msys2 {0}
+        run: |
+          cd cmd/steggo-gui
+          export PATH="/mingw64/bin:$PATH"
+          go mod download
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o ../../dist/steggo-gui-windows-amd64.exe .
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: steggo-gui-windows-amd64
+          path: dist/
+
+  publish:
+    name: 发布 GitHub Release
+    needs: [release, gui-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

@@ -1,303 +1,275 @@
 <div align="center">
 
-# 🔐 StegGo
+# 🔐 StegGo V1.0.0
 
-**AES-256 加密隐写术工具 · 把秘密藏进图片、音频和 PDF**
+**完全离线的抗检测隐写工具 · 把秘密藏进图片 / 音频 / PDF / 文本 / 视频**
 
-[![Go Version](https://img.shields.io/badge/Go-1.21%2B-00ADD8?logo=go)](https://go.dev)
+[![Go Version](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)]()
-[![Build](https://img.shields.io/badge/Build-Passing-brightgreen)]()
+[![CLI](https://img.shields.io/badge/CLI-✓-brightgreen)]()
+[![TUI](https://img.shields.io/badge/TUI-✓-brightgreen)]()
+[![GUI](https://img.shields.io/badge/GUI-Fyne-9cf)]()
 
-*Hide any file / password / private note inside a photo, audio file, or PDF.*  
-*Only StegGo + your password can recover it — the carrier looks completely untouched.*
+*「藏得下，查不出」*
 
-[快速开始](#快速开始) · [命令参考](#命令参考) · [安全设计](#安全设计) · [支持格式](#支持格式) · [贡献](#贡献)
+ SDK: [SDK.md](docs/SDK.md) · 免责声明: [DISCLAIMER.md](docs/DISCLAIMER.md)
 
 </div>
 
 ---
 
-## 目录
 
-- [功能特性](#功能特性)
-- [支持格式](#支持格式)
-- [安装](#安装)
-- [快速开始](#快速开始)
-- [命令参考](#命令参考)
-- [工作流程示例](#工作流程示例)
-- [安全设计](#安全设计)
-- [项目结构](#项目结构)
-- [常见问题](#常见问题)
-- [贡献](#贡献)
-- [许可证](#许可证)
-- [免责声明](#免责声明)
+## 核心特性
 
----
-
-## 功能特性
-
-| 特性 | 说明 |
+| 模块 | 说明 |
 |------|------|
-| 🔒 **AES-256-GCM 加密** | PBKDF2-SHA256 派生密钥（10 万轮），每次使用随机 salt + nonce |
-| 🖼️ **PNG 真隐写（LSB）** | 修改每像素 RGB 最低位，人眼完全不可见，±1 色阶差异 |
-| 📎 **EOF 追加隐写** | JPEG / 音频 / PDF 文件末尾追加加密载荷，查看器/播放器完全忽略 |
-| ✅ **哈希完整性校验** | 嵌入后自动生成 `.sha256` 侧车文件，随时验证载体是否被篡改 |
-| 📦 **批量操作** | 一条命令批量嵌入/提取整个目录的所有受支持文件 |
-| 🚫 **错误密码强拒绝** | GCM 认证标签校验失败立即报错，不返回任何乱码明文 |
+|  **自研抗检测 LSB** | 伪随机坐标（Xorshift64Star+PBKDF2）+ RGB 三通道轮询 + 高斯噪声填充，对抗卡方/RS/SPA 统计检测 |
+|  **加密链路** | ZIP 压缩 → PBKDF2-SHA256（21 万次迭代）→ AES-256-GCM → SHA256 完整性绑定 |
+|  **无损载体** | 图片（PNG/BMP/TIFF）、音频（WAV）、文档（PDF）、文本（TXT/MD 零宽字符）、视频（帧分片+XOR 冗余） |
+|  **有损格式拦截** | JPG/MP3/FLAC 等有损格式一律拒绝，避免压缩破坏载荷 |
+|  **敏感内存清零** | 密码、派生密钥、明文载荷使用后立即 `Wipe()` 清零 |
+|  **隐写自检审计** | 卡方检验 / RS 分析 / SPA 分析，支持低纹理保护，误报率可控 |
+|  **容量预检与质量评估** | `capacity` 提前查看各载体容量；`quality` 输出 PSNR/SSIM |
+|  **批量与流式** | 目录批量嵌入/提取（并发 worker 池）；64MB 分块流式处理大文件 |
+|  **Shamir 门限分片** | GF(2⁸) 有限域实现 (k,n) 分片，任意 k 片恢复，分片可分发到多张载体 |
+|  **三端兼容** | 命令行 CLI + 终端 TUI（BubbleTea）+ 桌面 GUI（Fyne） |
+|  **旧版兼容** | 兼容 V1 老格式（100k 迭代），无缝升级 |
 
 ---
 
-## 支持格式
+## 载体支持矩阵
 
-| 类型 | 格式 | 隐写方式 |
-|------|------|---------|
-| 图片 | `.png` | **LSB 像素隐写** — 修改最低有效位，文件结构合法 |
-| 图片 | `.jpg` / `.jpeg` | **EOF 追加** — JPEG 解码器忽略 `FFD9` 之后的字节 |
-| 音频 | `.wav` `.mp3` `.flac` `.ogg` `.aac` `.m4a` | **EOF 追加** — 播放器只读取帧数据 |
-| 文档 | `.pdf` | **EOF 追加** — PDF 阅读器只读到 `%%EOF` 标记 |
-
-> **容量上限**：PNG LSB 方式可藏 `(像素数 × 3) / 8` 字节；EOF 追加方式理论无上限。
+| 类型 | 格式 | 隐写方式 | 说明 |
+|------|------|---------|------|
+| 图片 | `.png` `.bmp` `.tif` `.tiff` | **抗检测 LSB** | 伪随机像素位嵌入，可调位深度 1-4 |
+| 音频 | `.wav` | **尾部容器** | 不破坏 WAV 头与数据完整性 |
+| 文档 | `.pdf` | **尾部容器** | 写入 `EOF` 标记之前，不破坏渲染结构 |
+| 文本 | `.txt` `.md` `.markdown` | **零宽字符** | U+200B/U+200C 编码，肉眼不可见 |
+| 视频 | `.mp4` `.mkv` `.webm` | **帧分片+XOR 冗余** | 分片嵌入 + 冗余纠错 |
+| ~~有损~~ | `.jpg` `.jpeg` `.mp3` `.flac` | **拦截** | 有损压缩会破坏载荷，一律拒绝 |
 
 ---
 
 ## 安装
 
-### 方式一：从源码构建（推荐）
+### 方式一：下载预编译二进制
+
+前往 [Releases](https://github.com/yikeqiyiguo/StegGo/releases) 下载对应平台产物：
+`steggo-<os>-<arch>`（CLI）、`steggo-tui-<os>-<arch>`（TUI）、`steggo-gui-windows-amd64.exe`（GUI）。
+
+### 方式二：源码构建（推荐）
 
 ```bash
-# 需要 Go 1.21+
-git clone https://github.com/your-username/StegGo.git
+# 需要 Go 1.26+
+git clone https://github.com/yikeqiyiguo/StegGo.git
 cd StegGo
-go build -o steggo ./cmd/steggo
 
-# Windows
-go build -o steggo.exe ./cmd/steggo
+# Windows / Linux / macOS
+go build -o steggo ./cmd/steggo
+go build -o steggo-tui ./cmd/steggo-tui
+
+# GUI（Fyne 需要 cgo + C 编译器）
+#   Windows: 安装 MinGW-w64（scoop install mingw）
+#   Linux:   apt install gcc libgl1-mesa-dev xorg-dev
+cd cmd/steggo-gui && CGO_ENABLED=1 go build -o ../../steggo-gui .
 ```
 
-### 方式二：go install
+### 方式三：一键脚本
+
+```powershell
+# Windows
+.\build.ps1            # CLI + TUI
+.\build.ps1 -Gui       # 追加 GUI（需 gcc）
+.\build.ps1 -Test      # 构建并测试
+```
 
 ```bash
-go install github.com/your-username/StegGo/cmd/steggo@latest
+# Linux / macOS
+make build tui         # 构建 CLI + TUI
+make gui               # 构建 GUI（需 cgo 依赖）
+make test              # 运行测试
 ```
-
-### 方式三：下载预编译二进制
-
-前往 [Releases](https://github.com/your-username/StegGo/releases) 下载对应平台的可执行文件，无需安装 Go。
 
 ### 验证安装
 
 ```bash
-steggo --help
+steggo version
+steggo info
 ```
 
 ---
 
 ## 快速开始
 
-### 1. 准备一张载体图片和一个秘密文件
+### 1. 嵌入秘密到图片
 
 ```bash
-# 秘密文件可以是任意格式：txt / pdf / zip / 私钥文件 等
-echo "password=hunter2, API_KEY=ABCD-1234" > secret.txt
+steggo hide -c photo.png -s secret.txt -p "MyStrongPass!" -o steg.png
 ```
 
-### 2. 嵌入（藏匿）
+- `-c` 载体（PNG/BMP/TIFF 等，自动识别类型）
+- `-s` 秘密文件（任意格式；加 `--dir` 可打包整个目录）
+- `-p` 密码（不传则安全交互输入，不回显）
+- `-b` 嵌入位数 1-4，默认 2（越高容量越大，隐蔽性略降）
 
-```bash
-steggo embed -c photo.png -s secret.txt -p "MyStrongPass!" -o steg.png
-```
-
-输出：
-```
-[OK] Embedded  : secret.txt -> steg.png
-[OK] Steg hash : a3f9c2...  -> steg.png.sha256
-```
-
-### 3. 提取（恢复）
+### 2. 提取秘密
 
 ```bash
 steggo extract -c steg.png -p "MyStrongPass!" -o ./output/
 ```
 
-输出：
-```
-[OK] Extracted : secret.txt -> output/secret.txt
-```
-
-### 4. 验证完整性
+### 3. 自检审计（检测图片是否被藏入数据）
 
 ```bash
-steggo verify -c steg.png -H steg.png.sha256
+steggo audit -i photo.png
 ```
 
-输出：
-```
-[OK]   Hash match : steg.png is intact
+### 4. 完整性校验
+
+```bash
+steggo verify -f steg.png
 ```
 
 ---
 
 ## 命令参考
 
-### `embed` — 嵌入秘密文件
+### `hide` — 嵌入秘密
 
 ```
-steggo embed -c <载体文件> -s <秘密文件> -p <密码> -o <输出文件>
-```
-
-| 参数 | 简写 | 说明 |
-|------|------|------|
-| `--carrier` | `-c` | 载体文件路径（PNG / JPEG / 音频 / PDF） |
-| `--secret` | `-s` | 要隐藏的秘密文件路径（任意格式） |
-| `--password` | `-p` | 加密密码（越长越安全） |
-| `--output` | `-o` | 输出的隐写文件路径 |
-
-**示例：**
-```bash
-# 藏进 PNG（LSB 隐写）
-steggo embed -c photo.png -s keys.txt -p "Pass123!" -o steg.png
-
-# 藏进 MP3（EOF 追加）
-steggo embed -c music.mp3 -s note.txt -p "Pass123!" -o out.mp3
-
-# 藏进 PDF（EOF 追加）
-steggo embed -c document.pdf -s secret.zip -p "Pass123!" -o out.pdf
-```
-
----
-
-### `extract` — 提取秘密文件
-
-```
-steggo extract -c <隐写文件> -p <密码> -o <输出目录>
+steggo hide -c <载体> -s <秘密> [-o <输出>] [-p <密码>] [-b 2] [--dir] [--name <名>] [--stream]
 ```
 
 | 参数 | 简写 | 说明 |
 |------|------|------|
-| `--carrier` | `-c` | 包含隐藏数据的隐写载体文件 |
-| `--password` | `-p` | 解密密码 |
-| `--output` | `-o` | 提取文件的输出目录 |
+| `--carrier` | `-c` | 载体文件（PNG/BMP/TIFF/WAV/PDF/TXT/MD/视频） |
+| `--secret` | `-s` | 秘密文件（配合 `--dir` 打包整个目录） |
+| `--output` | `-o` | 输出文件（默认 `<载体名>.steg.<原扩展名>`） |
+| `--password` | `-p` | 密码（不传则交互输入） |
+| `--bits` | `-b` | 图片每通道嵌入位数 1-4（默认 2） |
+| `--dir` | | 目录模式：将秘密目录整体打包嵌入 |
+| `--name` | | 保存的文件名（默认取秘密文件名） |
+| `--stream` | | 流式处理大文件（音频/PDF） |
 
-**示例：**
-```bash
-steggo extract -c steg.png -p "Pass123!" -o ./recovered/
-```
-
-> ⚠️ 密码错误时会立即报错：`decryption failed: wrong password or corrupted data`
-
----
-
-### `verify` — 哈希完整性校验
+### `extract` — 提取秘密
 
 ```
-steggo verify -c <文件> [-H <sha256文件>]
+steggo extract -c <载体> [-o <目录>] [-p <密码>] [--stream]
 ```
 
 | 参数 | 简写 | 说明 |
 |------|------|------|
-| `--carrier` | `-c` | 要验证的文件 |
-| `--hash-file` | `-H` | `.sha256` 侧车文件（默认：`<文件>.sha256`） |
+| `--carrier` | `-c` | 隐写载体文件 |
+| `--output` | `-o` | 输出目录（默认 `./extracted`） |
+| `--password` | `-p` | 密码（不传则交互输入） |
+| `--stream` | | 流式提取大文件 |
 
-**示例：**
-```bash
-steggo verify -c steg.png                        # 自动找 steg.png.sha256
-steggo verify -c steg.png -H my_hash.sha256      # 指定 hash 文件
+### `audit` — 隐写自检审计
+
 ```
+steggo audit -i <图片> [--json]
+```
+
+输出卡方检验 P 值、RS 分析嵌入率、SPA 偏斜度及综合判定。
+
+### `capacity` — 容量预检
+
+```
+steggo capacity -i <载体> [-b <位深度>] [--json]
+```
+
+无 `-b` 时输出 1-4 位深度容量矩阵。
+
+### `quality` — 质量评估
+
+```
+steggo quality --orig <原始图> --steg <隐写图> [--json]
+```
+
+输出 PSNR / SSIM。
+
+### `batch` — 批量操作
+
+```
+steggo batch embed -d <目录> -s <秘密> [-o <目录>] [-p <密码>] [-b 2] [--recursive] [--concurrency 4]
+steggo batch extract -d <目录> [-o <目录>] [-p <密码>] [--recursive] [--concurrency 4]
+```
+
+### `shamir` — 门限分片
+
+```
+steggo shamir split -i <秘密文件> -n <总片数> -k <门限> [-o <目录>]
+steggo shamir recover -d <分片目录> -k <门限> -o <输出文件>
+```
+
+任意凑齐 k 个分片即可恢复；少于 k 个得不到任何信息。
+
+### `zerowidth` — 零宽字符隐写
+
+```
+steggo zerowidth hide -c <文本载体> -s <秘密> [-o <输出>] [-p <密码>]
+steggo zerowidth extract -i <文本载体> [-o <目录>] [-p <密码>]
+```
+
+### `verify` — 完整性校验
+
+```
+steggo verify -f <文件> [-h <SHA256>]
+```
+
+### `info` / `version`
+
+```
+steggo info       # 环境与支持信息
+steggo version    # 版本号
+```
+
+> 所有命令支持 `-q` 静默模式。
 
 ---
 
-### `batch-embed` — 批量嵌入
+## 三端界面
 
-```
-steggo batch-embed -d <载体目录> -s <秘密文件> -p <密码> -o <输出目录>
-```
-
-将同一个秘密文件嵌入目录中所有受支持的文件：
-
-```bash
-steggo batch-embed -d ./photos/ -s secret.txt -p "Pass123!" -o ./steg_photos/
-```
-
----
-
-### `batch-extract` — 批量提取
-
-```
-steggo batch-extract -d <隐写目录> -p <密码> -o <输出目录>
-```
-
-从目录中所有隐写文件批量提取：
-
-```bash
-steggo batch-extract -d ./steg_photos/ -p "Pass123!" -o ./recovered/
-```
-
----
-
-## 工作流程示例
-
-### 场景：把 SSH 私钥藏进风景照片
-
-```bash
-# 嵌入私钥
-steggo embed \
-  -c vacation.png \
-  -s ~/.ssh/id_rsa \
-  -p "VacationKey2026!" \
-  -o vacation_steg.png
-
-# 正常分享 vacation_steg.png，任何人打开都是普通照片
-# 需要时恢复私钥
-steggo extract \
-  -c vacation_steg.png \
-  -p "VacationKey2026!" \
-  -o ~/.ssh/
-```
-
-### 场景：批量为相册里的每张图片嵌入同一份密码本
-
-```bash
-steggo batch-embed -d ./album/ -s passwords.txt -p "AlbumPass!" -o ./album_steg/
-# 之后批量提取
-steggo batch-extract -d ./album_steg/ -p "AlbumPass!" -o ./secrets/
-```
+| 客户端 | 技术栈 | 说明 |
+|--------|--------|------|
+| **CLI** `cmd/steggo` | Cobra | 全功能命令行，脚本友好，支持管道/静默输出 |
+| **TUI** `cmd/steggo-tui` | BubbleTea | 菜单→表单→运行状态机，无需图形环境 |
+| **GUI** `cmd/steggo-gui` | Fyne | 标签页布局（嵌入/提取/审计/批量/关于），需 cgo 构建 |
 
 ---
 
 ## 安全设计
 
 ```
-载体文件
-└── 隐写层（PNG LSB 或 EOF 追加）
-    └── 载荷结构（二进制）
-        ┌─────────────────────────────────────────────────┐
-        │ MAGIC[8B]  name_len[2B]  filename  data_len[4B] │
-        │                     AES-256-GCM 密文             │
-        └─────────────────────────────────────────────────┘
-                              │
-                    ┌─────────────────────┐
-                    │   AES-256-GCM 加密   │
-                    │                     │
-                    │  PBKDF2-SHA256 派生  │
-                    │  salt   : 16B 随机   │
-                    │  nonce  : 12B 随机   │
-                    │  rounds : 100,000   │
-                    │  GCM 认证标签: 16B   │
-                    └─────────────────────┘
+秘密文件 ──ZIP──> 明文载荷 ──PBKDF2 派生密钥──> AES-256-GCM 加密
+                                                    │
+                                          SHA256 摘要绑定（防篡改）
+                                                    │
+                    载体类型分派：LSB / 尾部容器 / 零宽字符 / 视频分片
 ```
 
 | 安全属性 | 实现 |
 |---------|------|
-| 密钥强度 | AES-256（256-bit 密钥） |
-| 密钥派生 | PBKDF2-SHA256，100,000 次迭代，16 字节随机 salt |
-| 加密模式 | GCM（Galois/Counter Mode）— 同时提供加密和认证 |
-| 随机性 | 每次 embed 使用 `crypto/rand` 生成全新 salt + nonce |
-| 防重放 | 相同内容 + 相同密码，每次输出结果完全不同 |
-| 防篡改 | GCM 认证标签 + `.sha256` 完整性校验双重保护 |
-| 错误信息 | 密码错误只返回 "wrong password"，不泄露任何明文信息 |
+| 密钥派生 | PBKDF2-SHA256，**210,000** 次迭代，16 字节随机盐 |
+| 加密算法 | AES-256-GCM（认证加密，同时防窃取与防篡改） |
+| 随机性 | 每次嵌入全新 `crypto/rand` 盐 + nonce；坐标种子由 PBKDF2 派生 |
+| 内存安全 | 密钥/明文/中间态使用后 `Wipe()` 清零 |
+| 错误处理 | 密码错误仅提示失败，不泄露任何明文信息 |
+| 防暴力破解 | 21 万次 PBKDF2 迭代大幅抬高离线爆破成本 |
+| 格式安全 | 仅支持无损载体；有损格式（JPG 等）在入口拦截 |
 
-> ⚠️ **注意**：EOF 追加方式（JPEG/音频/PDF）对专业隐写分析工具（stegdetect）可见。如需高隐蔽性，请使用 PNG LSB 方式。
+---
+
+## 抗检测原理
+
+| 检测手段 | 对抗策略 |
+|---------|---------|
+| 卡方检验 | 伪随机坐标散布 + 噪声填充，破坏相邻像素 LSB 统计规律 |
+| RS 分析 | 三通道轮询嵌入 + 噪声填充，降低翻转率规律性 |
+| SPA 分析 | 避免线性探测式连续嵌入，坐标随机化 + 冗余填充 |
+
+自检审计模块同样内置以上三类检测器，可提前验证载体隐蔽性。
 
 ---
 
@@ -306,94 +278,50 @@ steggo batch-extract -d ./album_steg/ -p "AlbumPass!" -o ./secrets/
 ```
 StegGo/
 ├── cmd/
-│   └── steggo/
-│       └── main.go               # CLI 入口（Cobra 框架）
-├── internal/
-│   ├── crypto/
-│   │   └── aes.go                # AES-256-GCM 加解密 + PBKDF2 密钥派生
-│   ├── hash/
-│   │   └── hash.go               # SHA-256 文件哈希校验
-│   └── steganography/
-│       ├── payload.go            # 载荷二进制编解码
-│       ├── image.go              # PNG LSB 隐写 + JPEG EOF 追加
-│       ├── audio.go              # WAV/MP3/FLAC/OGG/AAC/M4A EOF 追加
-│       ├── pdf.go                # PDF EOF 追加
-│       └── steg.go               # Embed / Extract / Batch 高层调度
-├── testdata/
-│   └── carrier.png               # 测试用示例载体图片
-├── go.mod
-├── go.sum
-├── LICENSE
-└── README.md
+│   ├── steggo/          # CLI（Cobra，11 个子命令）
+│   ├── steggo-tui/      # TUI（BubbleTea）
+│   └── steggo-gui/      # GUI（Fyne，独立 Go Module，需 cgo）
+├── pkg/
+│   ├── crypto/          # AES-256-GCM / PBKDF2 / Wipe / ZIP 打包
+│   ├── steg/            # 抗检测 LSB / 格式 / 审计 / 质量 / 容量 / Shamir / 流式 / 批量
+│   ├── carrier/         # 载体类型识别与加载（图片/音频/PDF/文本/视频）
+│   └── task/            # 并发 worker 池
+├── internal/            # 早期实现（保留兼容）
+├── testdata/            # 测试载体与样本
+├── Dockerfile           # 完全离线部署镜像
+├── build.ps1            # Windows 一键构建
+├── Makefile             # 通用构建
+└── docs/                # SDK 文档 + 免责声明
 ```
 
 ---
 
 ## 常见问题
 
-**Q：嵌入后图片文件大小会变化吗？**  
-A：PNG LSB 方式文件大小几乎不变（像素数据量相同，重新编码后可能略有差异）；EOF 追加方式文件大小 = 原文件 + 载荷大小。
+**Q：为什么拦截 JPG？**  
+A：JPEG 是有损压缩，重编码会破坏 LSB 载荷。为保证数据可恢复性，仅接受无损载体。
 
-**Q：PNG 图片能藏多大的文件？**  
-A：理论容量 = `像素总数 × 3 / 8` 字节。一张 1920×1080 的图可藏约 **760 KB**。
+**Q：图片能藏多少数据？**  
+A：位深度 b 下容量 ≈ `宽 × 高 × 3 × b / 8` 字节。1920×1080、b=2 时约 **1.5 MB**。可用 `steggo capacity` 精确查询。
 
-**Q：能同时藏多个文件吗？**  
-A：当前版本每次 embed 只藏一个文件。可以先将多个文件打包成 `.zip` 再嵌入。
+**Q：忘记密码怎么办？**  
+A：无法恢复。AES-256-GCM 无后门，密码是唯一密钥来源。
 
-**Q：忘记密码了怎么办？**  
-A：无法恢复。AES-256-GCM 没有后门，密码是唯一解密手段。
+**Q：嵌入后图片会被检测出来吗？**  
+A：本工具通过坐标随机化 + 噪声填充对抗卡方/RS/SPA 检测；自检前可先运行 `steggo audit` 验证。
 
-**Q：提取出来的文件名是什么？**  
-A：自动使用嵌入时秘密文件的原始文件名。
+**Q：如何将秘密分发给多人保管？**  
+A：使用 `steggo shamir split -n 5 -k 3`，5 份分片任意 3 份可恢复，2 份无任何信息。
 
-**Q：Windows / macOS / Linux 都支持吗？**  
-A：支持，Go 跨平台编译，行为一致。
-
----
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-```bash
-# Fork 并克隆
-git clone https://github.com/your-username/StegGo.git
-cd StegGo
-
-# 创建特性分支
-git checkout -b feature/your-feature
-
-# 运行测试
-go test ./...
-
-# 提交
-git commit -m "feat: your feature description"
-git push origin feature/your-feature
-```
-
-**Roadmap / 欢迎贡献的方向：**
-- [ ] WAV LSB 真隐写（DCT 系数替换）
-- [ ] 多文件同时嵌入
-- [ ] GUI 界面（Fyne / Wails）
-- [ ] 进度条显示（批量操作时）
-- [ ] 单元测试覆盖率提升
-- [ ] `go install` 支持的正式 Release
-
----
-
-## 许可证
-
-[MIT License](LICENSE) © 2026
+**Q：GUI 为什么编译不过？**  
+A：Fyne 在桌面端依赖 cgo（OpenGL），需安装 MinGW-w64（Windows）或 xorg-dev（Linux）后以 `CGO_ENABLED=1` 构建。
 
 ---
 
 ## 免责声明
 
-本工具仅供学习隐写术、密码学及个人隐私保护研究使用。  
-请勿将其用于任何违法活动。使用者需自行承担法律责任。
+本工具仅供**学习隐写术、密码学与个人信息安全研究**使用。使用者须遵守所在地法律法规，仅可在**自己拥有或获得明确授权**的载体上进行操作。严禁用于任何非法用途。详见 [DISCLAIMER.md](docs/DISCLAIMER.md)。
 
 ---
 
-<div align="center">
-  <sub>Built with ❤️ in Go · <a href="https://github.com/your-username/StegGo">GitHub</a></sub>
-</div>
+
