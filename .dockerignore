@@ -1,0 +1,30 @@
+# 版本控制
+.git
+.gitignore
+
+# 构建产物
+*.exe
+dist/
+build/
+steggo
+steggo-tui
+steggo-gui
+steggo.exe
+steggo-tui.exe
+steggo-gui.exe
+
+# 测试与临时文件
+*.test
+*.out
+coverage/
+coverage.txt
+*.log
+tmp/
+.DS_Store
+Thumbs.db
+
+# 本地文档与配置
+docs/
+testdata/
+README.md
+LICENSE

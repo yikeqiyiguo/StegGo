@@ -477,6 +477,7 @@ func ExtractText(carrierPath, outputDir string, password []byte) (*Result, error
 }
 
 // writeExtracted 将解出的明文写入输出目录（目录打包时整体解压）。
+// 注意：单文件 ZIP 已在 ParseSecretPayload 中解压为明文，这里不再重复解压。
 func writeExtracted(plain []byte, h *Header, outputDir string) error {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return err
@@ -484,18 +485,7 @@ func writeExtracted(plain []byte, h *Header, outputDir string) error {
 	if h.Flags&flagDir != 0 {
 		return crypto.UnzipBytes(plain, outputDir)
 	}
-	if h.Flags&flagZIP != 0 {
-		// 单文件 zip：解压到输出目录，保留原始文件名
-		name, data, err := crypto.UnzipSingleFile(plain)
-		if err != nil {
-			return err
-		}
-		crypto.Wipe(plain)
-		if name == "" {
-			name = h.Name
-		}
-		return os.WriteFile(filepath.Join(outputDir, name), data, 0600)
-	}
+	// 单文件 ZIP 已解压为明文；直接以原始文件名写出
 	return os.WriteFile(filepath.Join(outputDir, h.Name), plain, 0600)
 }
 

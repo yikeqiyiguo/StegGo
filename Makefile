@@ -1,24 +1,42 @@
-# StegGo V1.0 Makefile
+# StegGo V2.0 Makefile
 # Windows 用户请使用 build.ps1 或直接运行 go build。
 
 GO      ?= go
 LDFLAGS := -s -w
-VERSION ?= 1.0.0
+VERSION ?= 2.0.0
 BIN     := steggo
 TUI     := steggo-tui
 
-.PHONY: all build tui gui test vet lint clean install smoke
+.PHONY: all build tui gui test test-race vet lint clean install smoke docker cross
 
 all: build tui
 
 build: ## 构建 CLI
-	$(GO) build -trimpath -ldflags "$(LDFLAGS) -X main.version=$(VERSION)" -o $(BIN) ./cmd/steggo
+	$(GO) build -trimpath -ldflags "$(LDFLAGS) -X main.version=$(VERSION)" -o $(BIN) ./cmd/cli
 
 tui: ## 构建 TUI
-	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(TUI) ./cmd/steggo-tui
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(TUI) ./cmd/tui
 
 gui: ## 构建 GUI（需要 cgo + C 编译器；Windows 需 MinGW-w64，Linux 需 xorg-dev）
-	cd cmd/steggo-gui && CGO_ENABLED=1 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o ../../steggo-gui .
+	cd cmd/gui && CGO_ENABLED=1 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o ../../steggo-gui .
+
+cross: ## 交叉构建 dist/（Linux/macOS/Windows × amd64/arm64）
+	@mkdir -p dist
+	@set -e; for os in linux darwin windows; do \
+		for arch in amd64 arm64; do \
+			ext=""; [ "$$os" = "windows" ] && ext=".exe"; \
+			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath \
+				-ldflags "$(LDFLAGS) -X main.version=$(VERSION)" \
+				-o dist/steggo-$$os-$$arch$$ext ./cmd/cli; \
+			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -trimpath \
+				-ldflags "$(LDFLAGS)" \
+				-o dist/steggo-tui-$$os-$$arch$$ext ./cmd/tui; \
+			echo "  dist/steggo{-tui,}-$$os-$$arch$$ext"; \
+		done; \
+	done
+
+docker: ## 插件化镜像：make docker TARGET=all|cli|tui|gui
+	docker build --build-arg TARGET=$(TARGET) --build-arg VERSION=$(VERSION) -t steggo:$(VERSION) .
 
 test: ## 运行全部单元测试
 	$(GO) test -v ./...
@@ -42,4 +60,4 @@ clean: ## 清理构建产物
 	rm -rf dist/ build/
 
 install: build ## 安装到 GOBIN
-	$(GO) install -trimpath -ldflags "$(LDFLAGS) -X main.version=$(VERSION)" ./cmd/steggo
+	$(GO) install -trimpath -ldflags "$(LDFLAGS) -X main.version=$(VERSION)" ./cmd/cli
