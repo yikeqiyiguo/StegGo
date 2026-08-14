@@ -1,6 +1,6 @@
 # 免责声明 / Disclaimer
 
-**StegGo V1.0 **
+**StegGo V2.1.1 **
 
 ---
 

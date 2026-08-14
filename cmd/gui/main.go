@@ -12,7 +12,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -30,19 +32,18 @@ func main() {
 	a := app.New()
 	a.Settings().SetTheme(newGreenTheme())
 	w := a.NewWindow("StegGo V2.0 - 抗检测隐写工具")
-	w.Resize(fyne.NewSize(860, 640))
-	// 窗口默认可自由缩放，CenterOnScreen 使启动时居中显示
+	w.Resize(fyne.NewSize(920, 700))
 	w.CenterOnScreen()
 
 	tabs := container.NewAppTabs(
-		container.NewTabItem("嵌入", newHideTab(w)),
-		container.NewTabItem("提取", newExtractTab(w)),
-		container.NewTabItem("水印", newWatermarkTab(w)),
-		container.NewTabItem("容量", newCapacityTab(w)),
-		container.NewTabItem("质量", newQualityTab(w)),
-		container.NewTabItem("自检审计", newAuditTab(w)),
-		container.NewTabItem("批量", newBatchTab(w)),
-		container.NewTabItem("关于", newAboutTab()),
+		container.NewTabItemWithIcon("嵌入", theme.UploadIcon(), newHideTab(w)),
+		container.NewTabItemWithIcon("提取", theme.DownloadIcon(), newExtractTab(w)),
+		container.NewTabItemWithIcon("水印", theme.DocumentIcon(), newWatermarkTab(w)),
+		container.NewTabItemWithIcon("容量", theme.StorageIcon(), newCapacityTab(w)),
+		container.NewTabItemWithIcon("质量", theme.MediaPhotoIcon(), newQualityTab(w)),
+		container.NewTabItemWithIcon("自检审计", theme.VisibilityIcon(), newAuditTab(w)),
+		container.NewTabItemWithIcon("批量", theme.FolderIcon(), newBatchTab(w)),
+		container.NewTabItemWithIcon("关于", theme.InfoIcon(), newAboutTab()),
 	)
 	w.SetContent(container.NewBorder(appHeader(), nil, nil, nil, tabs))
 	w.ShowAndRun()
@@ -77,21 +78,23 @@ func setText(label *widget.Label, s string) {
 	fyne.Do(func() { label.SetText(s) })
 }
 
-// runAsync 在后台 goroutine 执行 fn，并用 setText 更新状态栏。
-func runAsync(status *widget.Label, fn func() error) {
-	setText(status, "执行中...")
+// runAsync 在后台 goroutine 执行 fn，并用状态区更新进度。
+// 失败时同时弹出带滚动条的完整错误对话框，避免长错误被截断。
+func runAsync(w fyne.Window, status *widget.Entry, fn func() error) {
+	uiSetStatus(status, "执行中...", false)
 	go func() {
 		err := fn()
 		if err != nil {
-			setText(status, "失败："+err.Error())
+			uiSetStatus(status, err.Error(), true)
+			uiErrorDialog(w, err)
 			return
 		}
-		setText(status, "完成")
+		uiSetStatus(status, "完成", false)
 	}()
 }
 
-func showInfo(w fyne.Window, msg string) {
-	fyne.Do(func() { dialog.ShowInformation("完成", msg, w) })
+func showInfo(w fyne.Window, title string, msg string) {
+	uiSuccessDialog(w, title, msg)
 }
 
 // sectionTitle 返回页内节标题。
@@ -138,7 +141,7 @@ func newHideTab(w fyne.Window) fyne.CanvasObject {
 	algo := widget.NewSelect(sdk.Algorithms(), nil)
 	algo.SetSelected("lsb")
 
-	status := widget.NewLabel("就绪")
+	status := uiStatus("就绪")
 
 	form := widget.NewForm(
 		widget.NewFormItem("载体文件", container.NewBorder(nil, nil, nil, browseBtn(w, carrier, false), carrier)),
@@ -149,7 +152,7 @@ func newHideTab(w fyne.Window) fyne.CanvasObject {
 		widget.NewFormItem("嵌入位数(1-4)", bits),
 	)
 
-	runBtn := widget.NewButtonWithIcon("开始嵌入", theme.ConfirmIcon(), func() {
+	runBtn := uiIconButton("开始嵌入", theme.ConfirmIcon(), func() {
 		if carrier.Text == "" || secret.Text == "" {
 			dialog.ShowError(fmt.Errorf("请填写载体与秘密文件"), w)
 			return
@@ -175,22 +178,41 @@ func newHideTab(w fyne.Window) fyne.CanvasObject {
 			Algorithm:   algo.Selected,
 			BitDepth:    b,
 		}
-		runAsync(status, func() error {
+		runAsync(w, status, func() error {
 			res, err := sdk.Embed(opts)
 			if err != nil {
 				return err
 			}
-			showInfo(w, fmt.Sprintf("嵌入成功\n秘密: %s (%d B)\n算法: %s / %d 位\n输出: %s",
-				res.Name, res.Size, res.Algorithm, res.BitDepth, out))
+			// 嵌入后立即自动验证提取，确保输出文件可逆提取。
+			// 这样嵌入侧的问题当场暴露，不会等到提取时才报"未找到载荷"。
+			verifyDir := filepath.Join(filepath.Dir(out), ".steggo_verify")
+			vopts := sdk.Options{
+				CarrierPath: out,
+				OutputPath:  verifyDir,
+				Password:    []byte(password.Text),
+			}
+			if verr := os.RemoveAll(verifyDir); verr != nil {
+				// 验证目录清理失败不阻塞，继续尝试
+			}
+			vres, verr := sdk.Extract(vopts)
+			if verr != nil {
+				showInfo(w, "警告", fmt.Sprintf("嵌入成功但自动验证失败!\n秘密: %s (%d B)\n算法: %s / %d 位\n输出: %s\n\n验证错误: %v\n\n请用此文件提取时使用相同密码: %s",
+					res.Name, res.Size, res.Algorithm, res.BitDepth, out, verr, password.Text))
+				return fmt.Errorf("嵌入成功但自动验证提取失败: %v（输出文件已生成: %s）", verr, out)
+			}
+			os.RemoveAll(verifyDir)
+			showInfo(w, "完成", fmt.Sprintf("嵌入成功（已自动验证可提取）\n秘密: %s (%d B)\n算法: %s / %d 位\n输出: %s\n验证算法: %s",
+				res.Name, res.Size, res.Algorithm, res.BitDepth, out, vres.Algorithm))
 			return nil
 		})
 	})
 
+	card := uiCard("参数设置", form)
+	actionBar := container.NewBorder(nil, nil, nil, runBtn, status)
 	return container.NewVScroll(container.NewPadded(container.NewVBox(
-		sectionTitle("嵌入 - 将秘密文件藏入载体（六算法可选）"),
-		form,
-		runBtn,
-		status,
+		sectionTitle("嵌入 - 将秘密文件藏入载体"),
+		card,
+		actionBar,
 	)))
 }
 
@@ -202,41 +224,81 @@ func newExtractTab(w fyne.Window) fyne.CanvasObject {
 	carrier := widget.NewEntry()
 	output := widget.NewEntry()
 	password := widget.NewPasswordEntry()
-	status := widget.NewLabel("就绪")
+	status := uiStatus("就绪")
+
+	// 算法选择：默认"自动扫描"；选择具体算法时优先按该算法参数提取，
+	// 失败后仍会回退到自动扫描全部组合，保证旧载体也能提取。
+	algoOpts := append([]string{"自动扫描"}, sdk.Algorithms()...)
+	algo := widget.NewSelect(algoOpts, nil)
+	algo.SetSelected("自动扫描")
+
+	// 高级参数（留空 = 默认值 / 自动扫描覆盖）
+	adv := widget.NewCheck("使用高级参数（手动指定嵌入位数 / DCT 质量 / DWT 级数）", nil)
+	bits := widget.NewEntry()
+	bits.SetPlaceHolder("嵌入位数 1-4（如 2）")
+	quality := widget.NewEntry()
+	quality.SetPlaceHolder("DCT 质量 1-32（如 8）")
+	levels := widget.NewEntry()
+	levels.SetPlaceHolder("DWT 级数 1-3（如 2）")
 
 	form := widget.NewForm(
 		widget.NewFormItem("隐写载体", container.NewBorder(nil, nil, nil, browseBtn(w, carrier, false), carrier)),
 		widget.NewFormItem("输出目录", container.NewBorder(nil, nil, nil, browseBtn(w, output, true), output)),
 		widget.NewFormItem("解密密码", password),
+		widget.NewFormItem("提取算法", algo),
+		widget.NewFormItem("", adv),
+		widget.NewFormItem("嵌入位数", bits),
+		widget.NewFormItem("DCT 质量", quality),
+		widget.NewFormItem("DWT 级数", levels),
 	)
-	runBtn := widget.NewButtonWithIcon("开始提取", theme.SearchIcon(), func() {
+	runBtn := uiIconButton("开始提取", theme.SearchIcon(), func() {
 		if carrier.Text == "" {
 			dialog.ShowError(fmt.Errorf("请选择载体文件"), w)
+			return
+		}
+		if len(password.Text) == 0 {
+			dialog.ShowError(fmt.Errorf("密码不能为空"), w)
 			return
 		}
 		out := output.Text
 		if out == "" {
 			out = "./extracted"
 		}
-		runAsync(status, func() error {
-			res, err := sdk.Extract(sdk.Options{
-				CarrierPath: carrier.Text,
-				OutputPath:  out,
-				Password:    []byte(password.Text),
-			})
+		opts := sdk.Options{
+			CarrierPath: carrier.Text,
+			OutputPath:  out,
+			Password:    []byte(password.Text),
+		}
+		if algo.Selected != "" && algo.Selected != "自动扫描" {
+			opts.Algorithm = algo.Selected
+		}
+		if adv.Checked {
+			if v, err := parseBits(bits.Text); err == nil {
+				opts.BitDepth = v
+			}
+			if v, err := strconv.Atoi(strings.TrimSpace(quality.Text)); err == nil && v >= 1 && v <= 32 {
+				opts.Quality = v
+			}
+			if v, err := strconv.Atoi(strings.TrimSpace(levels.Text)); err == nil && v >= 1 && v <= 3 {
+				opts.Levels = v
+			}
+		}
+		runAsync(w, status, func() error {
+			res, err := sdk.Extract(opts)
 			if err != nil {
 				return err
 			}
-			showInfo(w, fmt.Sprintf("提取成功\n秘密: %s (%d B)\n算法: %s / %d 位\n目录: %s",
+			showInfo(w, "完成", fmt.Sprintf("提取成功\n秘密: %s (%d B)\n算法: %s / %d 位\n目录: %s",
 				res.Name, res.Size, res.Algorithm, res.BitDepth, out))
 			return nil
 		})
 	})
+	card := uiCard("参数设置", form)
+	actionBar := container.NewBorder(nil, nil, nil, runBtn, status)
 	return container.NewVScroll(container.NewPadded(container.NewVBox(
 		sectionTitle("提取 - 自动扫描算法并从载体还原秘密"),
-		form,
-		runBtn,
-		status,
+		card,
+		actionBar,
 	)))
 }
 
@@ -249,14 +311,14 @@ func newWatermarkTab(w fyne.Window) fyne.CanvasObject {
 	mark := widget.NewEntry()
 	out := widget.NewEntry()
 	password := widget.NewPasswordEntry()
-	status := widget.NewLabel("就绪")
+	status := uiStatus("就绪")
 
 	markForm := widget.NewForm(
 		widget.NewFormItem("图像文件", container.NewBorder(nil, nil, nil, browseBtn(w, img, false), img)),
 		widget.NewFormItem("水印内容", mark),
 		widget.NewFormItem("输出文件", container.NewBorder(nil, nil, nil, browseBtn(w, out, false), out)),
 	)
-	embedBtn := widget.NewButtonWithIcon("嵌入水印", theme.ConfirmIcon(), func() {
+	embedBtn := uiIconButton("嵌入水印", theme.ConfirmIcon(), func() {
 		if img.Text == "" || mark.Text == "" {
 			dialog.ShowError(fmt.Errorf("请填写图像与水印内容"), w)
 			return
@@ -265,12 +327,12 @@ func newWatermarkTab(w fyne.Window) fyne.CanvasObject {
 		if outPath == "" {
 			outPath = img.Text + ".wm"
 		}
-		runAsync(status, func() error {
+		runAsync(w, status, func() error {
 			res, err := sdk.EmbedWatermark(img.Text, outPath, mark.Text)
 			if err != nil {
 				return err
 			}
-			showInfo(w, fmt.Sprintf("水印嵌入成功\n输出: %s", res.OutPath))
+			showInfo(w, "完成", fmt.Sprintf("水印嵌入成功\n输出: %s", res.OutPath))
 			return nil
 		})
 	})
@@ -279,29 +341,30 @@ func newWatermarkTab(w fyne.Window) fyne.CanvasObject {
 		widget.NewFormItem("含水印图像", container.NewBorder(nil, nil, nil, browseBtn(w, img, false), img)),
 		widget.NewFormItem("解密密码", password),
 	)
-	extractBtn := widget.NewButtonWithIcon("提取水印", theme.SearchIcon(), func() {
+	extractBtn := uiSecondaryButton("提取水印", theme.SearchIcon(), func() {
 		if img.Text == "" {
 			dialog.ShowError(fmt.Errorf("请选择含水印的图像"), w)
 			return
 		}
-		runAsync(status, func() error {
+		runAsync(w, status, func() error {
 			m, err := sdk.ExtractWatermark(img.Text)
 			if err != nil {
 				return err
 			}
-			showInfo(w, fmt.Sprintf("提取到的水印:\n%s", m))
+			showInfo(w, "完成", fmt.Sprintf("提取到的水印:\n%s", m))
 			return nil
 		})
 	})
 
+	embedCard := uiCard("嵌入水印", markForm)
+	extractCard := uiCard("提取水印", extractForm)
+	actionBar := container.NewBorder(nil, nil, nil, extractBtn, status)
 	return container.NewVScroll(container.NewPadded(container.NewVBox(
-		sectionTitle("水印 - 版权归属声明（LSB depth=1，固定种子）"),
-		markForm,
-		embedBtn,
-		widget.NewSeparator(),
-		extractForm,
-		extractBtn,
-		status,
+		sectionTitle("水印 - 版权归属声明"),
+		embedCard,
+		container.NewPadded(embedBtn),
+		extractCard,
+		actionBar,
 	)))
 }
 
@@ -313,20 +376,21 @@ func newCapacityTab(w fyne.Window) fyne.CanvasObject {
 	img := widget.NewEntry()
 	algo := widget.NewSelect(sdk.Algorithms(), nil)
 	algo.SetSelected("lsb")
-	status := widget.NewLabel("就绪")
+	status := uiStatus("就绪")
 	result := widget.NewMultiLineEntry()
 	result.Disable()
+	result.SetPlaceHolder("结果将显示在这里")
 
-	runBtn := widget.NewButtonWithIcon("计算容量", theme.InfoIcon(), func() {
+	runBtn := uiIconButton("计算容量", theme.InfoIcon(), func() {
 		if img.Text == "" {
 			dialog.ShowError(fmt.Errorf("请选择图片"), w)
 			return
 		}
-		setText(status, "计算中...")
+		uiSetStatus(status, "计算中...", false)
 		go func() {
 			mat, err := sdk.CapacityMatrix(img.Text, algo.Selected)
 			if err != nil {
-				setText(status, "失败："+err.Error())
+				uiSetStatus(status, err.Error(), true)
 				return
 			}
 			var s strings.Builder
@@ -336,23 +400,22 @@ func newCapacityTab(w fyne.Window) fyne.CanvasObject {
 			}
 			fyne.Do(func() {
 				result.SetText(s.String())
-				status.SetText("计算完成")
+				uiSetStatus(status, "计算完成", false)
 			})
 		}()
 	})
 
-	return container.NewVScroll(container.NewPadded(container.NewBorder(
-		container.NewVBox(
-			sectionTitle("容量 - 估算图像可承载的秘密大小"),
-			container.NewBorder(nil, nil, nil, browseBtn(w, img, false), img),
-			algo,
-			runBtn,
-			status,
-		),
-		nil,
-		nil,
-		nil,
-		result,
+	form := widget.NewForm(
+		widget.NewFormItem("图片文件", container.NewBorder(nil, nil, nil, browseBtn(w, img, false), img)),
+		widget.NewFormItem("算法", algo),
+	)
+	card := uiCard("参数设置", form)
+	actionBar := container.NewBorder(nil, nil, nil, runBtn, status)
+	return container.NewVScroll(container.NewPadded(container.NewVBox(
+		sectionTitle("容量 - 估算图像可承载的秘密大小"),
+		card,
+		actionBar,
+		uiCard("结果", result),
 	)))
 }
 
@@ -363,20 +426,21 @@ func newCapacityTab(w fyne.Window) fyne.CanvasObject {
 func newQualityTab(w fyne.Window) fyne.CanvasObject {
 	orig := widget.NewEntry()
 	steg := widget.NewEntry()
-	status := widget.NewLabel("就绪")
+	status := uiStatus("就绪")
 	result := widget.NewMultiLineEntry()
 	result.Disable()
+	result.SetPlaceHolder("结果将显示在这里")
 
-	runBtn := widget.NewButtonWithIcon("评估质量", theme.InfoIcon(), func() {
+	runBtn := uiIconButton("评估质量", theme.InfoIcon(), func() {
 		if orig.Text == "" || steg.Text == "" {
 			dialog.ShowError(fmt.Errorf("请选择原图与隐写图"), w)
 			return
 		}
-		setText(status, "评估中...")
+		uiSetStatus(status, "评估中...", false)
 		go func() {
 			rep, err := sdk.EvaluateQuality(orig.Text, steg.Text)
 			if err != nil {
-				setText(status, "失败："+err.Error())
+				uiSetStatus(status, err.Error(), true)
 				return
 			}
 			var s strings.Builder
@@ -387,24 +451,22 @@ func newQualityTab(w fyne.Window) fyne.CanvasObject {
 			}
 			fyne.Do(func() {
 				result.SetText(s.String())
-				status.SetText("评估完成")
+				uiSetStatus(status, "评估完成", false)
 			})
 		}()
 	})
 
-	return container.NewVScroll(container.NewPadded(container.NewBorder(
-		container.NewVBox(
-			sectionTitle("质量 - 对比原图与隐写图的失真程度"),
-			container.NewBorder(nil, nil, nil, browseBtn(w, orig, false), orig),
-			widget.NewLabel("隐写后图像"),
-			container.NewBorder(nil, nil, nil, browseBtn(w, steg, false), steg),
-			runBtn,
-			status,
-		),
-		nil,
-		nil,
-		nil,
-		result,
+	form := widget.NewForm(
+		widget.NewFormItem("原图", container.NewBorder(nil, nil, nil, browseBtn(w, orig, false), orig)),
+		widget.NewFormItem("隐写后图像", container.NewBorder(nil, nil, nil, browseBtn(w, steg, false), steg)),
+	)
+	card := uiCard("参数设置", form)
+	actionBar := container.NewBorder(nil, nil, nil, runBtn, status)
+	return container.NewVScroll(container.NewPadded(container.NewVBox(
+		sectionTitle("质量 - 对比原图与隐写图的失真程度"),
+		card,
+		actionBar,
+		uiCard("结果", result),
 	)))
 }
 
@@ -414,20 +476,21 @@ func newQualityTab(w fyne.Window) fyne.CanvasObject {
 
 func newAuditTab(w fyne.Window) fyne.CanvasObject {
 	input := widget.NewEntry()
-	status := widget.NewLabel("就绪")
+	status := uiStatus("就绪")
 	result := widget.NewMultiLineEntry()
 	result.Disable()
+	result.SetPlaceHolder("结果将显示在这里")
 
-	runBtn := widget.NewButtonWithIcon("执行自检", theme.InfoIcon(), func() {
+	runBtn := uiIconButton("执行自检", theme.InfoIcon(), func() {
 		if input.Text == "" {
 			dialog.ShowError(fmt.Errorf("请选择图片"), w)
 			return
 		}
-		setText(status, "分析中...")
+		uiSetStatus(status, "分析中...", false)
 		go func() {
 			res, err := sdk.AnalyzeImage(input.Text)
 			if err != nil {
-				setText(status, "失败："+err.Error())
+				uiSetStatus(status, err.Error(), true)
 				return
 			}
 			text := fmt.Sprintf("判定: %s\n卡方检验: P=%.4f\nRS 分析 : 嵌入率≈%.1f%%\n",
@@ -437,22 +500,21 @@ func newAuditTab(w fyne.Window) fyne.CanvasObject {
 			}
 			fyne.Do(func() {
 				result.SetText(text)
-				status.SetText("分析完成")
+				uiSetStatus(status, "分析完成", false)
 			})
 		}()
 	})
 
-	return container.NewVScroll(container.NewPadded(container.NewBorder(
-		container.NewVBox(
-			sectionTitle("自检审计 - 检测载体是否被篡改"),
-			container.NewBorder(nil, nil, nil, browseBtn(w, input, false), input),
-			runBtn,
-			status,
-		),
-		nil,
-		nil,
-		nil,
-		result,
+	form := widget.NewForm(
+		widget.NewFormItem("图片文件", container.NewBorder(nil, nil, nil, browseBtn(w, input, false), input)),
+	)
+	card := uiCard("参数设置", form)
+	actionBar := container.NewBorder(nil, nil, nil, runBtn, status)
+	return container.NewVScroll(container.NewPadded(container.NewVBox(
+		sectionTitle("自检审计 - 检测载体是否被篡改"),
+		card,
+		actionBar,
+		uiCard("结果", result),
 	)))
 }
 
@@ -467,9 +529,9 @@ func newBatchTab(w fyne.Window) fyne.CanvasObject {
 	password := widget.NewPasswordEntry()
 	algo := widget.NewSelect(sdk.Algorithms(), nil)
 	algo.SetSelected("lsb")
-	status := widget.NewLabel("就绪")
+	status := uiStatus("就绪")
 
-	embedBtn := widget.NewButtonWithIcon("批量嵌入", theme.ConfirmIcon(), func() {
+	embedBtn := uiIconButton("批量嵌入", theme.ConfirmIcon(), func() {
 		if dir.Text == "" {
 			dialog.ShowError(fmt.Errorf("请选择载体目录"), w)
 			return
@@ -478,11 +540,15 @@ func newBatchTab(w fyne.Window) fyne.CanvasObject {
 			dialog.ShowError(fmt.Errorf("请选择秘密文件"), w)
 			return
 		}
+		if len(password.Text) == 0 {
+			dialog.ShowError(fmt.Errorf("密码不能为空"), w)
+			return
+		}
 		out := output.Text
 		if out == "" {
 			out = filepath.Join(dir.Text, "batch-out")
 		}
-		runAsync(status, func() error {
+		runAsync(w, status, func() error {
 			res, err := sdk.BatchEmbed(sdk.BatchOptions{
 				Options: sdk.Options{
 					SecretPath: secret.Text,
@@ -504,21 +570,25 @@ func newBatchTab(w fyne.Window) fyne.CanvasObject {
 					ok++
 				}
 			}
-			showInfo(w, fmt.Sprintf("批量嵌入完成: 成功 %d, 失败 %d", ok, fail))
+			showInfo(w, "完成", fmt.Sprintf("批量嵌入完成: 成功 %d, 失败 %d", ok, fail))
 			return nil
 		})
 	})
 
-	extractBtn := widget.NewButtonWithIcon("批量提取", theme.SearchIcon(), func() {
+	extractBtn := uiSecondaryButton("批量提取", theme.SearchIcon(), func() {
 		if dir.Text == "" {
 			dialog.ShowError(fmt.Errorf("请选择载体目录"), w)
+			return
+		}
+		if len(password.Text) == 0 {
+			dialog.ShowError(fmt.Errorf("密码不能为空"), w)
 			return
 		}
 		out := output.Text
 		if out == "" {
 			out = filepath.Join(dir.Text, "batch-out")
 		}
-		runAsync(status, func() error {
+		runAsync(w, status, func() error {
 			res, err := sdk.BatchExtract(sdk.BatchOptions{
 				Options: sdk.Options{
 					Password: []byte(password.Text),
@@ -537,24 +607,24 @@ func newBatchTab(w fyne.Window) fyne.CanvasObject {
 					ok++
 				}
 			}
-			showInfo(w, fmt.Sprintf("批量提取完成: 成功 %d, 失败 %d", ok, fail))
+			showInfo(w, "完成", fmt.Sprintf("批量提取完成: 成功 %d, 失败 %d", ok, fail))
 			return nil
 		})
 	})
 
+	form := widget.NewForm(
+		widget.NewFormItem("载体目录", container.NewBorder(nil, nil, nil, browseBtn(w, dir, true), dir)),
+		widget.NewFormItem("秘密文件", container.NewBorder(nil, nil, nil, browseBtn(w, secret, false), secret)),
+		widget.NewFormItem("输出目录", container.NewBorder(nil, nil, nil, browseBtn(w, output, true), output)),
+		widget.NewFormItem("密码", password),
+		widget.NewFormItem("隐写算法", algo),
+	)
 	buttons := container.NewHBox(embedBtn, extractBtn)
+	actionBar := container.NewBorder(nil, nil, nil, buttons, status)
 	return container.NewVScroll(container.NewPadded(container.NewVBox(
 		sectionTitle("批量 - 目录级批量嵌入 / 提取"),
-		container.NewBorder(nil, nil, nil, browseBtn(w, dir, true), dir),
-		widget.NewLabel("秘密文件"),
-		container.NewBorder(nil, nil, nil, browseBtn(w, secret, false), secret),
-		widget.NewLabel("输出目录"),
-		container.NewBorder(nil, nil, nil, browseBtn(w, output, true), output),
-		widget.NewLabel("密码"),
-		password,
-		algo,
-		buttons,
-		status,
+		uiCard("参数设置", form),
+		actionBar,
 	)))
 }
 

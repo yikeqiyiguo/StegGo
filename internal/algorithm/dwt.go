@@ -2,6 +2,7 @@ package algorithm
 
 import (
 	"errors"
+	"fmt"
 	"image"
 )
 
@@ -63,8 +64,13 @@ func compressY(y uint8) int {
 }
 
 // Embed 将位流嵌入小波高频系数。
-// Y 平面先压缩到 [16,239]，系数用 QIM（间隔 dwtQuant）中心化嵌入，
-// 逆变换输出稳定在安全区间，往返无损。
+// Y 平面先压缩到 [16,239]，系数用 QIM（间隔 dwtQuant）中心化嵌入。
+//
+// 采用 POCS 迭代：每次“整数像素平面 → 分解 → 嵌入 → 逆变换”，
+// 再经 RGB 往返（roundTripY 模拟提取端真实读取链路）验证系数桶，
+// 不满足则以读回的 Y 平面为新的起点继续投影，直到收敛。
+// 这保证“写入像素 → 提取读取”整条链路可逆——整数提升虽可逆，
+// 但 fromYCbCr→toYCbCr 的舍入会把误差放大到小波系数桶，必须显式验证。
 func (a *dwt) Embed(img *image.NRGBA, bits []byte, opt Options) error {
 	if img == nil {
 		return errors.New("图像为空")
@@ -80,33 +86,108 @@ func (a *dwt) Embed(img *image.NRGBA, bits []byte, opt Options) error {
 	w, h := b.Dx(), b.Dy()
 
 	ycbcr := toYCbCr(img)
+	cbs := make([]uint8, w*h)
+	crs := make([]uint8, w*h)
 	plane := make([]int, w*h)
 	for i := range plane {
 		plane[i] = compressY(ycbcr[i].Y)
+		cbs[i] = ycbcr[i].Cb
+		crs[i] = ycbcr[i].Cr
 	}
 
-	bands := decomposeHaar(plane, w, h, opt.Levels)
-	bi := 0
-	rng := NewRNG(append(opt.Seed, 0x2B))
-	for _, band := range bands {
-		for i := range band.coeff {
-			bit := byte(0)
-			if bi < len(bits) {
-				bit = bits[bi]
-			} else {
-				bit = rng.NextBit()
-			}
-			bi++
-			band.coeff[i] = qimInt(band.coeff[i], bit)
-		}
+	out, ok := embedPlanePOCS(plane, cbs, crs, w, h, opt, bits)
+	if !ok {
+		return fmt.Errorf("DWT 嵌入 POCS 未收敛，请尝试降低 Levels（当前 %d）", opt.Levels)
 	}
-	recomposeHaar(plane, w, h, bands, opt.Levels)
-
-	for i := range plane {
-		ycbcr[i].Y = clampByte(plane[i])
+	for i := range out {
+		ycbcr[i].Y = clampByte(out[i])
 	}
 	fromYCbCr(img, ycbcr)
 	return nil
+}
+
+// embedPlanePOCS 在 Y 平面（压缩域）上做 POCS 迭代嵌入。
+// 多起点：先原始平面，再若干确定性小扰动，跳出 RGB 往返不动点陷阱。
+func embedPlanePOCS(plane []int, cbs, crs []uint8, w, h int, opt Options, bits []byte) ([]int, bool) {
+	starts := [][]int{plane}
+	rng := NewRNG([]byte{0xD2, 0x11, 0x22, 0x33})
+	for s := 0; s < 5; s++ {
+		sp := make([]int, w*h)
+		copy(sp, plane)
+		for i := range sp {
+			d := 0
+			for b := 0; b < 3; b++ {
+				d += int(rng.NextBit())
+			}
+			v := sp[i] + d - 1
+			if v < 0 {
+				v = 0
+			}
+			if v > 255 {
+				v = 255
+			}
+			sp[i] = v
+		}
+		starts = append(starts, sp)
+	}
+
+	for _, start := range starts {
+		cur := make([]int, w*h)
+		copy(cur, start)
+		for iter := 0; iter < 60; iter++ {
+			bands := decomposeHaar(cur, w, h, opt.Levels)
+			bi := 0
+			rngB := NewRNG(append(opt.Seed, 0x2B))
+			for _, band := range bands {
+				for i := range band.coeff {
+					bit := byte(0)
+					if bi < len(bits) {
+						bit = bits[bi]
+					} else {
+						bit = rngB.NextBit()
+					}
+					bi++
+					band.coeff[i] = qimInt(band.coeff[i], bit)
+				}
+			}
+			recomposeHaar(cur, w, h, bands, opt.Levels)
+
+			// 模拟提取端：clamp + RGB 往返后读回的 Y 平面
+			readBack := make([]int, w*h)
+			for i := range readBack {
+				readBack[i] = int(roundTripY(clampByte(cur[i]), uint8(cbs[i]), uint8(crs[i])))
+			}
+
+			// 验证数据区系数桶
+			bands2 := decomposeHaar(readBack, w, h, opt.Levels)
+			ok := true
+			bi = 0
+			for _, band := range bands2 {
+				for _, k := range band.coeff {
+					if bi >= len(bits) {
+						break
+					}
+					if qimExtractInt(k) != bits[bi] {
+						ok = false
+						break
+					}
+					bi++
+				}
+				if !ok {
+					break
+				}
+			}
+			if ok {
+				out := make([]int, w*h)
+				for i := range out {
+					out[i] = int(clampByte(cur[i]))
+				}
+				return out, true
+			}
+			cur = readBack
+		}
+	}
+	return plane, false
 }
 
 // Extract 从高频系数读取位流。
