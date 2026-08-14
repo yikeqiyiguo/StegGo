@@ -8,7 +8,6 @@
 package service
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -199,16 +198,13 @@ func (s *Service) Embed(opt Options) (*Result, error) {
 	defer common.Wipe(payload)
 
 	// 3. 派生坐标种子并嵌入载体。
-	//    可否认载荷使用固定定位种子（见 deniableSeed 说明）。
-	seed, serr := s.deriveSeedFromOptions(opt)
-	if serr != nil {
-		return nil, serr
-	}
+	//    普通载荷与可否认载荷统一使用固定定位种子（见 deniableSeed 说明）。
+	//    密码只参与载荷加解密，不再参与坐标游走定位。这样提取时：
+	//      - 只要载体确已嵌入，任何算法都能定位载荷（算法行为一致）；
+	//      - 密码错误时明确报"密码错误"，而不是令人困惑的"未找到载荷"；
+	//      - 同一载体/算法/位深下，嵌入位置固定，重复嵌入可覆盖旧数据。
+	seed := append([]byte(nil), deniableSeed...)
 	defer common.Wipe(seed)
-	if opt.FakeFile != "" && len(opt.FakePassword) > 0 {
-		common.Wipe(seed)
-		seed = append([]byte(nil), deniableSeed...)
-	}
 
 	c, err := carrier.ForPath(opt.CarrierPath)
 	if err != nil {
@@ -294,8 +290,9 @@ func (s *Service) Extract(opt Options) (*Result, error) {
 	defer common.Wipe(seed)
 
 	// 2. 提取载荷字节流并解析 V3 头。
-	//    普通载荷由密码种子定位；可否认载荷由固定种子定位（与密码无关，
-	//    保证假密码也能定位双密文结构并解开诱饵区）。
+	//    先试密码种子（兼容 V2 早期版本由密码种子定位的旧载体），
+	//    再试固定种子（当前版本所有新载体统一使用固定定位种子，
+	//    保证密码错误时也能定位载荷并明确报出"密码错误"）。
 	for _, sd := range [][]byte{seed, deniableSeed} {
 		stream, algo, bitDepth, derr := extractStream(opt.CarrierPath, opt, sd)
 		if derr != nil {
@@ -323,11 +320,19 @@ func (s *Service) Extract(opt Options) (*Result, error) {
 		s.audit("extract", opt.CarrierPath, outDir, res, nil)
 		return res, nil
 	}
-	if err == nil {
-		err = v1err
-	}
+	return nil, wrapErr("提取失败", extractErr(err, v1err))
+}
 
-	return nil, wrapErr("提取失败", err)
+// extractErr 聚合 V2 扫描与 V1 回退的错误，保留最多诊断信息。
+func extractErr(v2err, v1err error) error {
+	switch {
+	case v2err != nil && v1err != nil:
+		return fmt.Errorf("V2 流程失败: %v; V1.0 回退失败: %v", v2err, v1err)
+	case v2err != nil:
+		return v2err
+	default:
+		return v1err
+	}
 }
 
 // resolveAndWrite 解析 V3 载荷并写出。
@@ -349,9 +354,9 @@ func (s *Service) resolveAndWrite(stream []byte, algo string, bitDepth int, opt 
 	}
 	defer common.Wipe(plain)
 
-	out := writeExtracted(plain, meta, outDir)
-	if err := out; err != nil {
-		return nil, wrapErr("写出数据", err)
+	werr := writeExtracted(plain, meta, outDir)
+	if werr != nil {
+		return nil, wrapErr("写出数据", werr)
 	}
 	res := &Result{
 		Name:        meta.Name,
@@ -463,6 +468,3 @@ func (s *Service) audit(action, in, out string, res *Result, err error) {
 		Hash:   hash,
 	})
 }
-
-// 确保 bytes 包被使用（scan.go 中同样使用）。
-var _ = bytes.HasPrefix

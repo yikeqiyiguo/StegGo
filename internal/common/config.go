@@ -8,7 +8,7 @@ import (
 
 // Config 是本地加密配置。整个文件以 AES-256-GCM 落盘，不明文保存敏感路径与密钥。
 type Config struct {
-	// Algorithm 默认隐写算法：lsb / dct / dwt / hugo / wow / uniwward
+	// Algorithm 默认隐写算法：lsb / dct / dwt / hugo / wow / uniward
 	Algorithm string `json:"algorithm"`
 	// BitDepth 默认嵌入位数 1-4
 	BitDepth int `json:"bit_depth"`

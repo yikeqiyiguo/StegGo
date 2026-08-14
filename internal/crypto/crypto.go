@@ -69,7 +69,7 @@ const (
 // AlgoNames 算法标识 → 名称。
 var AlgoNames = map[byte]string{
 	AlgoLSB: "lsb", AlgoDCT: "dct", AlgoDWT: "dwt",
-	AlgoHUGO: "hugo", AlgoWOW: "wow", AlgoUNIWARD: "uniwward",
+	AlgoHUGO: "hugo", AlgoWOW: "wow", AlgoUNIWARD: "uniward",
 }
 
 // AlgoIDToName 算法 ID 转名称。

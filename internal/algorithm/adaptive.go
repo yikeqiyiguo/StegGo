@@ -40,6 +40,21 @@ func newAdaptive(id byte, name string, cost costFn) Algorithm {
 func (a *adaptive) ID() byte     { return a.id }
 func (a *adaptive) Name() string { return a.name }
 
+// costFor 根据成本函数名解析成本函数；空名或未知名返回算法默认成本。
+// 使嵌入/提取与提取扫描矩阵（costStyle=hill|wow|uniward）语义统一，
+// 避免"扫描矩阵成本名与算法内部成本脱节"导致提取失败。
+func (a *adaptive) costFor(name string) costFn {
+	switch name {
+	case "hill":
+		return hillCost
+	case "wow":
+		return wowCost
+	case "uniward":
+		return uniwardCost
+	}
+	return a.cost
+}
+
 // adaptiveLowBits 成本忽略的像素低位（嵌入 1 bit 不影响成本）。
 const adaptiveLowBits = 2
 
@@ -67,7 +82,7 @@ func (a *adaptive) Embed(img *image.NRGBA, bits []byte, opt Options) error {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	hi := newImageNRGBAHi(img, adaptiveLowBits)
-	cursor := NewCostCursor(opt.Seed, w, h, hi, a.cost)
+	cursor := NewCostCursor(opt.Seed, w, h, hi, a.costFor(opt.CostStyle))
 	pos := 0
 
 	for {
@@ -99,7 +114,7 @@ func (a *adaptive) Extract(img *image.NRGBA, opt Options) ([]byte, error) {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	hi := newImageNRGBAHi(img, adaptiveLowBits)
-	cursor := NewCostCursor(opt.Seed, w, h, hi, a.cost)
+	cursor := NewCostCursor(opt.Seed, w, h, hi, a.costFor(opt.CostStyle))
 
 	bits := make([]byte, 0, w*h*3)
 	for {

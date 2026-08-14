@@ -113,10 +113,30 @@ func LoadImage(path string) (*image.NRGBA, error) {
 	return toNRGBA(src), nil
 }
 
-// toNRGBA 将任意图像统一转换为 NRGBA（alpha 预乘归一化）。
+// toNRGBA 将任意图像统一转换为 NRGBA（保持像素值精确，避免 alpha 预乘失真）。
 func toNRGBA(src image.Image) *image.NRGBA {
 	b := src.Bounds()
 	dst := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	// 源已是 NRGBA 时直接逐像素复制，避免 .RGBA() 做 alpha 预乘导致
+	// 半透明像素 RGB 值改变（这是 GUI 中部分 PNG 嵌入后无法提取的根因）。
+	if s, ok := src.(*image.NRGBA); ok {
+		for y := 0; y < b.Dy(); y++ {
+			for x := 0; x < b.Dx(); x++ {
+				dst.SetNRGBA(x, y, s.NRGBAAt(b.Min.X+x, b.Min.Y+y))
+			}
+		}
+		return dst
+	}
+	// 源是预乘 RGBA 时解预乘得到精确 NRGBA。
+	if s, ok := src.(*image.RGBA); ok {
+		for y := 0; y < b.Dy(); y++ {
+			for x := 0; x < b.Dx(); x++ {
+				dst.SetNRGBA(x, y, color.NRGBAModel.Convert(s.At(b.Min.X+x, b.Min.Y+y)).(color.NRGBA))
+			}
+		}
+		return dst
+	}
+	// 其他类型（Gray/Gray16/Paletted 等）经 .RGBA() 归一化转换。
 	for y := 0; y < b.Dy(); y++ {
 		for x := 0; x < b.Dx(); x++ {
 			r, g, bl, a := src.At(b.Min.X+x, b.Min.Y+y).RGBA()

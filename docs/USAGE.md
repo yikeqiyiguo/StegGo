@@ -1,6 +1,6 @@
 # StegGo 使用文档
 
-> 本文档面向用户，介绍 StegGo V2.0 的全部功能与三端（CLI / TUI / GUI）操作方式。
+> 本文档面向用户，介绍 StegGo V2.1.1 的全部功能与三端（CLI / TUI / GUI）操作方式。
 > 开发者 SDK 文档请见 [SDK.md](SDK.md)。
 
 ---
