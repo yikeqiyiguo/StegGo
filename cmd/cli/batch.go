@@ -31,8 +31,8 @@ func newBatchEmbedCmd() *cobra.Command {
 		concurrent int
 	)
 	cmd := &cobra.Command{
-		Use:   "embed -d <载体目录> -s <秘密> -o <输出目录> [-p <密码>]",
-		Short: "将秘密批量嵌入目录中的全部载体",
+		Use:     "embed -d <载体目录> -s <秘密> -o <输出目录> [-p <密码>]",
+		Short:   "将秘密批量嵌入目录中的全部载体",
 		Example: `  steggo batch embed -d ./carriers -s secret.txt -o ./out`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			quiet, _ := cmd.Flags().GetBool("quiet")
@@ -45,7 +45,7 @@ func newBatchEmbedCmd() *cobra.Command {
 				return fmt.Errorf("必须指定 -d 载体目录与 -s 秘密文件")
 			}
 			opts := steg.BatchEmbedOptions{
-				Options: steg.Options{BitDepth: bits, Password: password},
+				Options:     steg.Options{BitDepth: bits, Password: password},
 				Concurrency: concurrent,
 				IncludeDirs: recursive,
 			}
@@ -87,8 +87,8 @@ func newBatchExtractCmd() *cobra.Command {
 		concurrent int
 	)
 	cmd := &cobra.Command{
-		Use:   "extract -d <载体目录> -o <输出目录> [-p <密码>]",
-		Short: "从目录中的全部载体批量提取秘密",
+		Use:     "extract -d <载体目录> -o <输出目录> [-p <密码>]",
+		Short:   "从目录中的全部载体批量提取秘密",
 		Example: `  steggo batch extract -d ./out -o ./extracted`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			quiet, _ := cmd.Flags().GetBool("quiet")

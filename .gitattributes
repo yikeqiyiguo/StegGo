@@ -1,0 +1,16 @@
+# 统一行尾：Go/Markdown/脚本使用 LF，Windows 脚本使用 CRLF
+* text=auto
+
+*.go   text eol=lf
+*.mod  text eol=lf
+*.sum  text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
+Dockerfile text eol=lf
+Makefile   text eol=lf
+
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf

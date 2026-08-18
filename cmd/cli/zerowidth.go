@@ -27,8 +27,8 @@ func newZWEncodeCmd() *cobra.Command {
 		pass    string
 	)
 	cmd := &cobra.Command{
-		Use:   "encode -c <文本载体> -s <秘密> -o <输出> [-p <密码>]",
-		Short: "将秘密以零宽字符嵌入文本",
+		Use:     "encode -c <文本载体> -s <秘密> -o <输出> [-p <密码>]",
+		Short:   "将秘密以零宽字符嵌入文本",
 		Example: `  steggo zerowidth encode -c note.md -s secret.txt -o note.steg.md`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			quiet, _ := cmd.Flags().GetBool("quiet")
@@ -69,8 +69,8 @@ func newZWDecodeCmd() *cobra.Command {
 		pass   string
 	)
 	cmd := &cobra.Command{
-		Use:   "decode -i <文本> -o <输出目录> [-p <密码>]",
-		Short: "从文本中提取零宽字符隐写秘密",
+		Use:     "decode -i <文本> -o <输出目录> [-p <密码>]",
+		Short:   "从文本中提取零宽字符隐写秘密",
 		Example: `  steggo zerowidth decode -i note.steg.md -o ./out`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			quiet, _ := cmd.Flags().GetBool("quiet")

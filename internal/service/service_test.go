@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -228,6 +229,59 @@ func TestServiceWrongPassword(t *testing.T) {
 	if _, err := s.Extract(baseOpt(outCarrier, "", extractDir, []byte("wrong"))); err == nil {
 		t.Fatal("错误密码应提取失败")
 	}
+}
+
+func TestServiceExtractFromJPEGAnchored(t *testing.T) {
+	dir := t.TempDir()
+	carrierPath := filepath.Join(dir, "carrier.png")
+	outPNG := filepath.Join(dir, "out.png")
+	secretPath := filepath.Join(dir, "s.txt")
+	jpgPath := filepath.Join(dir, "out.jpg")
+	extractDir := filepath.Join(dir, "x")
+	writeTestPNG(t, carrierPath, 512, 512)
+	writeSecret(t, secretPath, "JPEG提取测试")
+
+	s := newTestService()
+	opt := baseOpt(carrierPath, secretPath, outPNG, []byte("p"))
+	opt.Algorithm = "anchored"
+	if _, err := s.Embed(opt); err != nil {
+		t.Fatalf("Embed anchored: %v", err)
+	}
+
+	// 模拟社交平台重压缩：PNG → JPEG q75。
+	if err := pngToJPEG(outPNG, jpgPath, 75); err != nil {
+		t.Fatal(err)
+	}
+
+	// 不指定算法，走自动扫描；JPEG 提取放行。
+	if _, err := s.Extract(baseOpt(jpgPath, "", extractDir, []byte("p"))); err != nil {
+		t.Fatalf("Extract from JPEG: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(extractDir, "s.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "JPEG提取测试" {
+		t.Fatalf("内容不一致: %q", got)
+	}
+}
+
+func pngToJPEG(pngPath, jpgPath string, q int) error {
+	f, err := os.Open(pngPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	img, _, err := image.Decode(f)
+	if err != nil {
+		return err
+	}
+	out, err := os.Create(jpgPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	return jpeg.Encode(out, img, &jpeg.Options{Quality: q})
 }
 
 // ---------------------------------------------------------------------------

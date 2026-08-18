@@ -16,8 +16,8 @@ func newWatermarkCmd() *cobra.Command {
 无需密码。嵌入不影响图像可读性，标记内容不可见。`,
 	}
 	embed := &cobra.Command{
-		Use:   "embed -c <载体> -m <水印> [-o <输出>]",
-		Short: "向图像嵌入水印",
+		Use:     "embed -c <载体> -m <水印> [-o <输出>]",
+		Short:   "向图像嵌入水印",
 		Example: `  steggo watermark embed -c photo.png -m "© 2026 StegGo" -o marked.png`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			quiet, _ := cmd.Flags().GetBool("quiet")
@@ -46,8 +46,8 @@ func newWatermarkCmd() *cobra.Command {
 	embed.Flags().StringP("output", "o", "", "输出图片（默认 <载体>.wm.png）")
 
 	extract := &cobra.Command{
-		Use:   "extract -c <图片>",
-		Short: "从图像提取水印",
+		Use:     "extract -c <图片>",
+		Short:   "从图像提取水印",
 		Example: `  steggo watermark extract -c marked.png`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			carrier, _ := cmd.Flags().GetString("carrier")

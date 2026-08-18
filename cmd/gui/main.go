@@ -6,7 +6,7 @@
 // 构建：cd cmd/gui && CGO_ENABLED=1 go build -o steggo-gui.exe .
 //
 // 功能统一：本界面通过 steggo/pkg/steg/sdk（V2.0 公开 SDK）驱动，
-// 与 CLI/TUI 共用 internal/service 六算法嵌入、自动扫描提取、
+// 与 CLI/TUI 共用 internal/service 七算法嵌入、自动扫描提取、
 // 水印、批量、Shamir 分权、容量/质量/自检审计等全部能力。
 package main
 
@@ -105,7 +105,7 @@ func sectionTitle(s string) fyne.CanvasObject {
 // appHeader 返回应用顶部标题栏。
 func appHeader() fyne.CanvasObject {
 	title := widget.NewLabelWithStyle("StegGo 隐写工具", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	subtitle := widget.NewLabelWithStyle("抗检测隐写 · 六算法 · AES-256-GCM · 自检审计 · 全平台", fyne.TextAlignLeading, fyne.TextStyle{})
+	subtitle := widget.NewLabelWithStyle("抗检测隐写 · 七算法 · AES-256-GCM · 自检审计 · 全平台", fyne.TextAlignLeading, fyne.TextStyle{})
 	subtitle.Wrapping = fyne.TextWrapWord
 	header := container.NewStack(
 		canvas.NewRectangle(theme.Color(theme.ColorNameHeaderBackground)),
@@ -640,7 +640,7 @@ func newAboutTab() fyne.CanvasObject {
 	info := widget.NewLabel(`StegGo V2.0 - 抗检测隐写工具
 
 核心链路: ZIP压缩 → 三因子密钥派生(PBKDF2) → AES-256-GCM → SHA256绑定
-           → 六算法隐写(LSB/DCT/DWT/HUGO/WOW/UNIWARD) → 载体容器/套娃/Polyglot
+           → 七算法隐写(LSB/DCT/DWT/HUGO/WOW/UNIWARD/锚定) → 载体容器/套娃/Polyglot
 自研壁垒: 确定性伪随机游走 + 成本加权嵌入 + 高斯噪声填充
 自检审计: 卡方检验 / RS分析 / SPA分析
 架构: 五层(common/crypto/algorithm/carrier/service) + 三层交互(CLI/TUI/GUI) + 离线铁则

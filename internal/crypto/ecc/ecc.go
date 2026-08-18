@@ -21,12 +21,12 @@ const MaxDataLen = 255 - 32 // 255 - 最大冗余
 
 // Stats 描述一次纠错编码/解码的统计信息。
 type Stats struct {
-	OriginalLen    int     // 原始数据长度
-	EncodedLen     int     // 编码后长度
+	OriginalLen     int     // 原始数据长度
+	EncodedLen      int     // 编码后长度
 	RedundancyRatio float64 // 冗余占比 = 冗余/总长
-	Blocks         int     // 数据块数
-	CorrectedErrors int    // 解码时纠正的符号总数
-	RepairRate     float64 // 修复成功率预估（修复块数/总块数）
+	Blocks          int     // 数据块数
+	CorrectedErrors int     // 解码时纠正的符号总数
+	RepairRate      float64 // 修复成功率预估（修复块数/总块数）
 }
 
 // LevelECC 返回等级对应的冗余符号数。
@@ -131,12 +131,12 @@ func Decode(encoded []byte, level Level) ([]byte, *Stats, error) {
 		repairRate = float64(repaired) / float64(blocks)
 	}
 	stats := &Stats{
-		OriginalLen:      origLen,
-		EncodedLen:       len(encoded),
-		RedundancyRatio:  float64(blocks*eccN) / float64(len(encoded)),
-		Blocks:           blocks,
-		CorrectedErrors:  corrected,
-		RepairRate:       repairRate,
+		OriginalLen:     origLen,
+		EncodedLen:      len(encoded),
+		RedundancyRatio: float64(blocks*eccN) / float64(len(encoded)),
+		Blocks:          blocks,
+		CorrectedErrors: corrected,
+		RepairRate:      repairRate,
 	}
 	return out[:origLen], stats, nil
 }

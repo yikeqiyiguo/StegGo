@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: 质量检查 (fmt/vet/test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: gofmt 检查
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            echo "以下文件未通过 gofmt："
+            echo "$files"
+            exit 1
+          fi
+
+      - name: go vet 静态检查
+        run: go vet ./...
+
+      - name: 单元测试
+        run: go test ./...
+
+      - name: 冒烟构建 CLI + TUI
+        run: |
+          go build -trimpath -ldflags "-s -w -X main.version=ci" -o /tmp/steggo ./cmd/cli
+          go build -trimpath -ldflags "-s -w" -o /tmp/steggo-tui ./cmd/tui
+          /tmp/steggo version
+
+  gui-windows:
+    name: GUI 编译验证 (Windows + cgo)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: 安装 MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+
+      - name: 构建 GUI
+        shell: msys2 {0}
+        run: |
+          cd cmd/gui
+          export PATH="/mingw64/bin:$PATH"
+          go mod download
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o steggo-gui.exe .

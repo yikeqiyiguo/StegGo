@@ -27,7 +27,7 @@ func newInfoCmd() *cobra.Command {
 			fmt.Println("拦截格式: JPG/JPEG、MP3/AAC/OGG/M4A/WMA 等有损格式")
 			fmt.Println()
 			fmt.Println("加密体系: ZIP压缩 → 三因子PBKDF2(21万次) → AES-256-GCM → SHA256绑定")
-			fmt.Println("隐写算法: LSB / DCT-QIM / DWT-QIM / HUGO / WOW / UNIWARD (成本加权自适应)")
+			fmt.Println("隐写算法: LSB / DCT-QIM / DWT-QIM / HUGO / WOW / UNIWARD / 锚定(特征点抗裁剪压缩)")
 			fmt.Println("自检审计: 卡方检验 / RS 分析 / SPA 分析")
 			return nil
 		},

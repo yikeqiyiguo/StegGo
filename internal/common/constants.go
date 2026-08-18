@@ -52,7 +52,7 @@ const (
 
 // 安全审计风险等级。
 const (
-	RiskSafe     = "SAFE"
-	RiskLow      = "LOW_RISK"
-	RiskHigh     = "HIGH_RISK"
+	RiskSafe = "SAFE"
+	RiskLow  = "LOW_RISK"
+	RiskHigh = "HIGH_RISK"
 )

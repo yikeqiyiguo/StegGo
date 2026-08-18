@@ -27,7 +27,7 @@ func TestNonDefaultParamsScanExtract(t *testing.T) {
 	}
 
 	cases := []struct {
-		algo   string
+		algo    string
 		quality int
 		levels  int
 		bits    int

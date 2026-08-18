@@ -83,8 +83,8 @@ func SSIM(orig, steg *image.NRGBA) float64 {
 
 // QualityReport 隐写质量报告。
 type QualityReport struct {
-	PSNR  float64 `json:"psnr_db"`
-	SSIM  float64 `json:"ssim"`
+	PSNR  float64  `json:"psnr_db"`
+	SSIM  float64  `json:"ssim"`
 	Notes []string `json:"notes"`
 }
 

@@ -1,15 +1,19 @@
 # =============================================================
-# StegGo V2.0 build script (Windows / PowerShell)
+# StegGo V2.2 build script (Windows / PowerShell)
 # Usage:
 #   .\build.ps1                 # build CLI + TUI
 #   .\build.ps1 -Gui            # also build GUI (needs MinGW-w64/gcc + cgo)
+#   .\build.ps1 -Termux         # also build Android Termux ARM64 package
+#   .\build.ps1 -Wasm           # also build WASM browser audit
 #   .\build.ps1 -Test           # build and run unit tests
-#   .\build.ps1 -Version v2.0.0 # set version string
+#   .\build.ps1 -Version v2.2.0 # set version string
 # =============================================================
 param(
     [switch]$Gui,
+    [switch]$Termux,
+    [switch]$Wasm,
     [switch]$Test,
-    [string]$Version = "2.0.0"
+    [string]$Version = "2.2.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -71,6 +75,33 @@ if ($Gui) {
                 Pop-Location
             }
         }
+    }
+}
+
+if ($Termux) {
+    Invoke-Step "Building Android Termux ARM64 (steggo / steggo-tui)" {
+        $env:GOOS = "linux"
+        $env:GOARCH = "arm64"
+        $env:CGO_ENABLED = "0"
+        New-Item -ItemType Directory -Force -Path dist/termux | Out-Null
+        go build -trimpath -ldflags "-s -w" -o dist/termux/steggo ./cmd/cli
+        go build -trimpath -ldflags "-s -w" -o dist/termux/steggo-tui ./cmd/tui
+        Remove-Item Env:GOOS, Env:GOARCH -ErrorAction SilentlyContinue
+        Write-Host "  dist/termux/steggo + steggo-tui (ARM64)" -ForegroundColor Cyan
+    }
+}
+
+if ($Wasm) {
+    Invoke-Step "Building WASM browser audit (dist/steggo.wasm)" {
+        $env:GOOS = "js"
+        $env:GOARCH = "wasm"
+        $env:CGO_ENABLED = "0"
+        New-Item -ItemType Directory -Force -Path dist | Out-Null
+        go build -trimpath -ldflags "-s -w" -o dist/steggo.wasm ./wasm
+        $goroot = go env GOROOT
+        Copy-Item "$goroot\lib\wasm\wasm_exec.js" dist\wasm_exec.js -Force
+        Remove-Item Env:GOOS, Env:GOARCH -ErrorAction SilentlyContinue
+        Write-Host "  dist/steggo.wasm + dist/wasm_exec.js" -ForegroundColor Cyan
     }
 }
 

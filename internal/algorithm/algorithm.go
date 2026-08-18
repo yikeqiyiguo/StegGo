@@ -14,16 +14,18 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"sort"
 )
 
 // AlgoID 与 internal/crypto 的算法标识保持一致。
 const (
-	IDLSB     byte = 0
-	IDDCT     byte = 1
-	IDDWT     byte = 2
-	IDHUGO    byte = 3
-	IDWOW     byte = 4
-	IDUNIWARD byte = 5
+	IDLSB      byte = 0
+	IDDCT      byte = 1
+	IDDWT      byte = 2
+	IDHUGO     byte = 3
+	IDWOW      byte = 4
+	IDUNIWARD  byte = 5
+	IDANCHORED byte = 6
 )
 
 // Options 算法统一参数。
@@ -124,14 +126,31 @@ func GetByID(id byte) Algorithm {
 
 // Names 返回全部已注册算法名称（稳定顺序）。
 func Names() []string {
-	names := []string{"lsb", "dct", "dwt", "hugo", "wow", "uniward"}
-	out := make([]string, 0, len(names))
-	for _, n := range names {
+	// 稳定顺序：内置算法固定在前（与历史顺序一致），其余注册算法按名称排序。
+	builtin := []string{"lsb", "dct", "dwt", "hugo", "wow", "uniward"}
+	out := make([]string, 0, len(registry))
+	for _, n := range builtin {
 		if _, ok := registry[n]; ok {
 			out = append(out, n)
 		}
 	}
-	return out
+	var rest []string
+	for n := range registry {
+		if !knownName(n) {
+			rest = append(rest, n)
+		}
+	}
+	sort.Strings(rest)
+	return append(out, rest...)
+}
+
+// knownName 判断是否为内置算法名（Names 稳定排序使用）。
+func knownName(name string) bool {
+	switch name {
+	case "lsb", "dct", "dwt", "hugo", "wow", "uniward":
+		return true
+	}
+	return false
 }
 
 // ByteToBits 将字节流转为 MSB-first 0/1 位流（供 carrier/service 层使用）。

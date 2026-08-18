@@ -128,26 +128,49 @@ func scanImageExtract(path string, opt Options, seed []byte) ([]byte, string, in
 		}
 		stream, err := c.Extract(path, copt)
 		if err != nil {
-			lastErr = err
+			// 特征点锚定对"非锚定嵌入"的图像报定位失败（找不到同步区）。
+			// 这类错误仅说明该组合未嵌入载荷，不覆盖更精确的 lastErr
+			// （如密码错误/载荷解析失败），否则扫描矩阵末尾的 anchored
+			// 会掩盖真实失败原因，导致密码错误误报为"锚点不足"。
+			if !errors.Is(err, algorithm.ErrNoAnchors) {
+				lastErr = err
+			}
 			continue
 		}
 		attempted = append(attempted, describeCombo(cm))
-		if len(stream) >= len(common.MagicV3) &&
-			bytes.HasPrefix(stream, []byte(common.MagicV3)) {
+
+		// ECC 包装流：先 RS 纠错解包，再检查 V3/V2 魔数。
+		payloadStream := stream
+		if len(stream) >= eccHeaderLen && bytes.HasPrefix(stream, eccMagic) {
+			decoded, _, _, ok, uerr := unwrapECC(stream)
+			if uerr != nil {
+				lastErr = uerr
+				continue
+			}
+			if !ok {
+				lastErr = carrier.ErrNoPayload
+				continue
+			}
+			payloadStream = decoded
+		}
+		if len(payloadStream) >= len(common.MagicV3) &&
+			bytes.HasPrefix(payloadStream, []byte(common.MagicV3)) {
 			// 关键：仅魔数命中不足以保证参数正确。例如 DCT 相邻 Quality 的量化
 			// 网格奇偶一致，会整段命中魔数但密文区不同。必须验证载荷可完整
 			// 解析（TrimPayload + 解密）后才视为命中，否则继续尝试下一组合。
-			if verr := validateExtractedPayload(stream, opt); verr == nil {
+			if verr := validateExtractedPayload(payloadStream, opt); verr == nil {
+				// 命中：ECC 载荷返回原始流（由 resolveAndWrite 解包以获得纠错统计），
+				// 普通载荷返回原流。
 				return stream, cm.algorithm, cm.bitDepth, nil
 			} else {
 				lastErr = verr
 				continue
 			}
 		}
-		if len(stream) >= len(common.MagicV2) &&
-			bytes.HasPrefix(stream, []byte(common.MagicV2)) {
+		if len(payloadStream) >= len(common.MagicV2) &&
+			bytes.HasPrefix(payloadStream, []byte(common.MagicV2)) {
 			// V2 魔数命中的是 V1.0 旧载体，交给 service.Extract 的 V1 兼容回退处理
-			return stream, "lsb", cm.bitDepth, nil
+			return payloadStream, "lsb", cm.bitDepth, nil
 		}
 	}
 	if lastErr == nil {

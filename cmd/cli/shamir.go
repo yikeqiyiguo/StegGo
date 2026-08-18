@@ -27,14 +27,14 @@ func newShamirCmd() *cobra.Command {
 
 func newShamirSplitCmd() *cobra.Command {
 	var (
-		input string
-		total int
-		need  int
+		input  string
+		total  int
+		need   int
 		output string
 	)
 	cmd := &cobra.Command{
-		Use:   "split -i <秘密文件> -n <总片数> -k <门限> [-o <目录>]",
-		Short: "拆分秘密为 (k, n) 门限分片",
+		Use:     "split -i <秘密文件> -n <总片数> -k <门限> [-o <目录>]",
+		Short:   "拆分秘密为 (k, n) 门限分片",
 		Example: `  steggo shamir split -i secret.zip -n 5 -k 3 -o ./shares`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			quiet, _ := cmd.Flags().GetBool("quiet")
@@ -77,13 +77,13 @@ func newShamirSplitCmd() *cobra.Command {
 
 func newShamirRecoverCmd() *cobra.Command {
 	var (
-		dir   string
-		need  int
+		dir    string
+		need   int
 		output string
 	)
 	cmd := &cobra.Command{
-		Use:   "recover -d <分片目录> -k <门限> -o <输出文件>",
-		Short: "从分片恢复秘密（任意 k 个分片）",
+		Use:     "recover -d <分片目录> -k <门限> -o <输出文件>",
+		Short:   "从分片恢复秘密（任意 k 个分片）",
 		Example: `  steggo shamir recover -d ./shares -k 3 -o secret.zip`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			quiet, _ := cmd.Flags().GetBool("quiet")

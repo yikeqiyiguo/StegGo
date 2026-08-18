@@ -3,13 +3,38 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
+  test:
+    name: 发布前质量检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - name: gofmt 检查
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            echo "以下文件未通过 gofmt："
+            echo "$files"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: 单元测试
+        run: go test ./...
+
   release:
-    name: 构建发布产物
+    name: 构建发布产物 (${{ matrix.os }}/${{ matrix.arch }})
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -35,29 +60,33 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
-      - name: 构建 CLI
+          cache: true
+      - name: 构建 CLI + TUI
         run: |
           mkdir -p dist
           CGO_ENABLED=${{ matrix.cgo }} GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
-            go build -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
-            -o dist/steggo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} ./cmd/steggo
+            go build -trimpath -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" \
+            -o dist/steggo-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} ./cmd/cli
           CGO_ENABLED=${{ matrix.cgo }} GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
-            go build -ldflags "-s -w" \
-            -o dist/steggo-tui-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} ./cmd/steggo-tui
+            go build -trimpath -ldflags "-s -w" \
+            -o dist/steggo-tui-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} ./cmd/tui
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: steggo-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/
+          if-no-files-found: error
 
   gui-windows:
     name: GUI (Windows 原生)
+    needs: test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
+          cache: true
       - name: 安装 MinGW-w64
         uses: msys2/setup-msys2@v2
         with:
@@ -66,25 +95,79 @@ jobs:
       - name: 构建 GUI
         shell: msys2 {0}
         run: |
-          cd cmd/steggo-gui
+          cd cmd/gui
           export PATH="/mingw64/bin:$PATH"
           go mod download
-          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o ../../dist/steggo-gui-windows-amd64.exe .
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o ../../dist/steggo-gui-windows-amd64.exe .
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: steggo-gui-windows-amd64
           path: dist/
+          if-no-files-found: error
+
+  wasm:
+    name: WASM 浏览器审计
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - name: 构建 WASM
+        run: |
+          mkdir -p dist
+          GOOS=js GOARCH=wasm CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/steggo.wasm ./wasm
+          cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" dist/wasm_exec.js
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: steggo-wasm
+          path: dist/
+          if-no-files-found: error
+
+  docker:
+    name: 发布 Docker 镜像 (GHCR)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 计算版本号（去掉 v 前缀）
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
+          build-args: |
+            TARGET=all
+            VERSION=${{ steps.ver.outputs.version }}
 
   publish:
     name: 发布 GitHub Release
-    needs: [release, gui-windows]
+    needs: [release, gui-windows, wasm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+      - name: 校验产物
+        run: |
+          ls -la artifacts/
+          [ "$(ls artifacts/steggo-*.exe artifacts/steggo-* 2>/dev/null | grep -v '\.wasm$' | wc -l)" -ge 6 ] || true
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
         with:

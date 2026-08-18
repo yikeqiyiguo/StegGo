@@ -14,7 +14,7 @@ func hideForm() *formSpec {
 			{key: "secret", label: "秘密文件路径"},
 			{key: "output", label: "输出文件 (留空自动生成)"},
 			{key: "password", label: "加密密码", secret: true},
-			{key: "algorithm", label: "算法 lsb/dct/dwt/hugo/wow/uniward (默认 lsb)", optional: true},
+			{key: "algorithm", label: "算法 lsb/dct/dwt/hugo/wow/uniward/anchored (默认 lsb)", optional: true},
 			{key: "bits", label: "嵌入位数 1-4 (默认1)", optional: true},
 		},
 		run: func(v map[string]string) (string, error) {

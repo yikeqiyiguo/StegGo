@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"steggo/internal/carrier"
 	"steggo/internal/service"
 )
 
@@ -91,8 +92,8 @@ func newNestedCmd() *cobra.Command {
 	embed.Flags().IntP("bits", "b", 1, "每通道嵌入位数")
 
 	extract := &cobra.Command{
-		Use:   "extract -c <最外层载体> -d <层数> [-o <输出目录>] [-p <密码>]",
-		Short: "从最外层逐层剥离提取",
+		Use:     "extract -c <最外层载体> -d <层数> [-o <输出目录>] [-p <密码>]",
+		Short:   "从最外层逐层剥离提取",
 		Example: `  steggo nested extract -c nested_02.png -d 2 -p 密码`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			quiet, _ := cmd.Flags().GetBool("quiet")
@@ -139,6 +140,72 @@ func newNestedCmd() *cobra.Command {
 	extract.Flags().StringP("output", "o", "", "输出目录（默认当前目录）")
 	extract.Flags().StringP("password", "p", "", "加密密码")
 
-	root.AddCommand(embed, extract)
+	expand := &cobra.Command{
+		Use:   "expand -c <最外层载体> [-o <输出目录>] [-p <密码>]",
+		Short: "一键展开：自动探测嵌套深度并导出全部层级",
+		Long: `自动从最外层逐层剥离，直到最内层秘密，无需手动指定层数：
+  - 每层写入 layer_01/、layer_02/ ... 子目录，含全部内嵌文件；
+  - 任一层不再是可识别载体（或提取失败）即视为最内层并停止；
+  - 密码错误或文件并非隐写载体时明确报错。`,
+		Example: `  steggo nested expand -c nested_03.png -p 密码 -o ./expanded`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			quiet, _ := cmd.Flags().GetBool("quiet")
+			outer, _ := cmd.Flags().GetString("carrier")
+			outDir, _ := cmd.Flags().GetString("output")
+			pass, _ := cmd.Flags().GetString("password")
+			limit, _ := cmd.Flags().GetInt("limit")
+			if outer == "" {
+				return fmt.Errorf("必须指定 -c 最外层载体")
+			}
+			password, err := resolvePassword(pass, "输入密码: ")
+			if err != nil {
+				return err
+			}
+			defer wipe(password)
+			if outDir == "" {
+				outDir = "."
+			}
+			svc := service.New()
+			cur := outer
+			layers := 0
+			for layers < limit {
+				layerDir := filepath.Join(outDir, fmt.Sprintf("layer_%02d", layers+1))
+				res, err := svc.Extract(service.Options{
+					CarrierPath: cur,
+					OutputPath:  layerDir,
+					Password:    password,
+				})
+				if err != nil {
+					// 当前文件非嵌套载体（或已是最终秘密），展开结束。
+					break
+				}
+				layers++
+				if !quiet {
+					fmt.Printf("[+] 第 %d 层: %s (%d B, %s)\n", layers, res.Name, res.Size, res.Algorithm)
+				}
+				if res.IsDir {
+					break // 目录即最内层
+				}
+				next := filepath.Join(layerDir, res.Name)
+				if _, kerr := carrier.DetectKind(next); kerr != nil {
+					break // 解出的文件不再是可识别载体 = 最内层秘密
+				}
+				cur = next
+			}
+			if layers == 0 {
+				return fmt.Errorf("未从 %s 中提取到任何有效载荷（密码错误或文件并非隐写载体）", outer)
+			}
+			if !quiet {
+				fmt.Printf("[OK] 一键展开完成: 共 %d 层 -> %s\n", layers, outDir)
+			}
+			return nil
+		},
+	}
+	expand.Flags().StringP("carrier", "c", "", "最外层载体文件")
+	expand.Flags().StringP("output", "o", "", "输出目录（默认当前目录）")
+	expand.Flags().StringP("password", "p", "", "加密密码")
+	expand.Flags().IntP("limit", "l", 32, "最大展开层数（防止死循环）")
+
+	root.AddCommand(embed, extract, expand)
 	return root
 }

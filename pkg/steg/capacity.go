@@ -8,15 +8,15 @@ import (
 
 // CapacityResult 载体容量预检测结果。
 type CapacityResult struct {
-	Kind      string `json:"kind"`
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
-	Channels  int    `json:"channels"`
-	BitDepth  int    `json:"bit_depth"`
-	MaxBits   int64  `json:"max_bits"`
-	MaxBytes  int64  `json:"max_bytes"`
-	Overhead  int64  `json:"overhead"`
-	Usable    int64  `json:"usable"`
+	Kind     string `json:"kind"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	Channels int    `json:"channels"`
+	BitDepth int    `json:"bit_depth"`
+	MaxBits  int64  `json:"max_bits"`
+	MaxBytes int64  `json:"max_bytes"`
+	Overhead int64  `json:"overhead"`
+	Usable   int64  `json:"usable"`
 }
 
 // CheckImageCapacity 检测无损图片载体在指定嵌入位数下的容量。

@@ -15,7 +15,7 @@ func makeTestImage(w, h int) *image.NRGBA {
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			// 左半渐变，右半棋盘纹理，含平滑区
-			v := uint8(x*255 / w)
+			v := uint8(x * 255 / w)
 			if x > w*3/4 {
 				v = uint8(200 + (x % 20)) // 平滑区
 			}
@@ -41,7 +41,8 @@ func makeDataBits(n int) []byte {
 
 func TestRegisterAndGet(t *testing.T) {
 	names := Names()
-	want := []string{"lsb", "dct", "dwt", "hugo", "wow", "uniward"}
+	// 内置算法固定在前，其余注册算法（anchored 等）按名称排序在后。
+	want := []string{"lsb", "dct", "dwt", "hugo", "wow", "uniward", "anchored"}
 	if len(names) != len(want) {
 		t.Fatalf("Names() = %v, want %v", names, want)
 	}
@@ -422,11 +423,11 @@ func TestOptionsValidation(t *testing.T) {
 	a := NewLSB()
 	img := makeTestImage(8, 8)
 	badOpts := []Options{
-		{BitDepth: 5, Seed: []byte("x")},               // 超出 1-4
-		{BitDepth: -1, Seed: []byte("x")},              // 非法
-		{ChannelMask: 0b1000, Seed: []byte("x")},       // 超出 3 通道
-		{CostStyle: "unknown", Seed: []byte("x")},    // 未知成本函数
-		{BitDepth: 2, Levels: 4, Seed: []byte("x")},  // DWT 级数超出
+		{BitDepth: 5, Seed: []byte("x")},            // 超出 1-4
+		{BitDepth: -1, Seed: []byte("x")},           // 非法
+		{ChannelMask: 0b1000, Seed: []byte("x")},    // 超出 3 通道
+		{CostStyle: "unknown", Seed: []byte("x")},   // 未知成本函数
+		{BitDepth: 2, Levels: 4, Seed: []byte("x")}, // DWT 级数超出
 	}
 	for _, opt := range badOpts {
 		if err := a.Embed(cloneNRGBA(img), makeDataBits(4), opt); err == nil {

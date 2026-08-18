@@ -20,9 +20,9 @@ const (
 
 // ThreeFactor 描述三因子验证的参与者。
 type ThreeFactor struct {
-	Password []byte // 密码因子（可为空，但至少要有一个因子）
-	KeyFile  []byte // KeyFile 内容（可为空）
-	UseMachine bool // 是否绑定本机硬件指纹
+	Password   []byte // 密码因子（可为空，但至少要有一个因子）
+	KeyFile    []byte // KeyFile 内容（可为空）
+	UseMachine bool   // 是否绑定本机硬件指纹
 }
 
 // Validate 校验三因子组合是否合法（至少启用一个因子）。

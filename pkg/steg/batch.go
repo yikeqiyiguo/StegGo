@@ -12,9 +12,9 @@ import (
 
 // BatchResult 单文件处理结果。
 type BatchResult struct {
-	Carrier string `json:"carrier"`
-	Output  string `json:"output,omitempty"`
-	Error   error  `json:"-"`
+	Carrier string  `json:"carrier"`
+	Output  string  `json:"output,omitempty"`
+	Error   error   `json:"-"`
 	Result  *Result `json:"result,omitempty"`
 }
 

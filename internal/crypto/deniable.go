@@ -18,9 +18,9 @@ import (
 // 两个密文使用独立随机盐、nonce 与 SHA256 哈希，结构上完全对称，
 // 无法从载体探测到存在第二份密文。
 type DeniablePayload struct {
-	Real []byte   // 真实文件内容
-	Fake []byte   // 诱饵文件内容
-	Name string   // 真实文件名（写入头部）
+	Real []byte // 真实文件内容
+	Fake []byte // 诱饵文件内容
+	Name string // 真实文件名（写入头部）
 }
 
 // BuildDeniablePayload 构建可否认双密文载荷。
@@ -40,11 +40,11 @@ func BuildDeniablePayload(data *DeniablePayload, realPass, fakePass []byte, opt 
 	defer common.Wipe(secretR)
 	defer common.Wipe(secretF)
 
-	ctR, err := v1crypto.Encrypt(data.Real, secretR)
+	ctR, err := encryptBody(secretR, opt.UseSM4, data.Real)
 	if err != nil {
 		return nil, nil, err
 	}
-	ctF, err := v1crypto.Encrypt(data.Fake, secretF)
+	ctF, err := encryptBody(secretF, opt.UseSM4, data.Fake)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -68,6 +68,9 @@ func BuildDeniablePayload(data *DeniablePayload, realPass, fakePass []byte, opt 
 	}
 	if opt.UseMachine {
 		flags |= flagMachine
+	}
+	if opt.UseSM4 {
+		flags |= flagSM4
 	}
 	algoID, _ := AlgoNameToID(opt.Algorithm)
 	head := EncodeV3Header(&Header{
@@ -133,7 +136,7 @@ func ParseDeniablePayload(payload []byte, password []byte, opt *ParseOptions) ([
 		if expectSum != nil && !v1crypto.ConstantTimeEqual(sum[:], expectSum) {
 			return nil, errors.New("哈希不匹配")
 		}
-		return v1crypto.Decrypt(ct, secret)
+		return decryptBody(secret, head.Flags&flagSM4 != 0, ct)
 	}
 
 	// 主密码：先试真实区

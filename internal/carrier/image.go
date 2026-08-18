@@ -1,9 +1,11 @@
 package carrier
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/color"
+	_ "image/jpeg" // 注册 JPEG 解码器：特征点锚定/DCT 可从社交平台重压缩后的 JPEG 提取
 	"image/png"
 	"os"
 	"path/filepath"
@@ -98,6 +100,15 @@ func (c *imageCarrier) Extract(path string, opt Options) ([]byte, error) {
 // ---------------------------------------------------------------------------
 // 图像读写
 // ---------------------------------------------------------------------------
+
+// DecodeImageBytes 从内存字节解码图像为 NRGBA（供 WASM 前端等无文件场景使用）。
+func DecodeImageBytes(data []byte) (*image.NRGBA, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	return toNRGBA(img), nil
+}
 
 // LoadImage 解码任意支持的图像（PNG/BMP/TIFF/JPEG 头会被拦截于 DetectKind）。
 func LoadImage(path string) (*image.NRGBA, error) {

@@ -36,16 +36,16 @@ type fieldSpec struct {
 }
 
 type model struct {
-	state     state
-	cursor    int    // 菜单/字段光标
-	selected  int    // 菜单选中项
-	form      *formSpec
-	inputs    []textinput.Model
-	results   []string // 运行日志
-	err       error
-	running   bool
-	finished  bool
-	formDone  string // 运行完成后的显示文本
+	state    state
+	cursor   int // 菜单/字段光标
+	selected int // 菜单选中项
+	form     *formSpec
+	inputs   []textinput.Model
+	results  []string // 运行日志
+	err      error
+	running  bool
+	finished bool
+	formDone string // 运行完成后的显示文本
 }
 
 var menuItems = []string{
@@ -254,9 +254,9 @@ var (
 			Background(lipgloss.Color("39")).
 			Foreground(lipgloss.Color("0")).
 			Padding(0, 1)
-	dimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	okStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
-	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	dimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	okStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
+	errStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 )
 
 func (m model) View() string {

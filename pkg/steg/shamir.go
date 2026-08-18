@@ -18,8 +18,8 @@ const (
 )
 
 var (
-	gfLog [fieldSize]uint8
-	gfExp [fieldSize*2 - 1]uint8
+	gfLog      [fieldSize]uint8
+	gfExp      [fieldSize*2 - 1]uint8
 	gfInitDone bool
 )
 

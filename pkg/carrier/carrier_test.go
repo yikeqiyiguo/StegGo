@@ -29,22 +29,22 @@ func writeTestPNG(t *testing.T, path string) {
 
 func TestDetectKind(t *testing.T) {
 	cases := map[string]Kind{
-		"a.png":        KindImage,
-		"b.bmp":        KindImage,
-		"c.tif":        KindImage,
-		"d.tiff":       KindImage,
-		"e.wav":        KindAudio,
-		"f.pdf":        KindPDF,
-		"g.txt":        KindText,
-		"h.md":         KindText,
-		"i.markdown":   KindText,
-		"j.mp4":        KindVideo,
-		"k.mkv":        KindVideo,
-		"l.webm":       KindVideo,
-		"m.unknown":    KindUnknown,
-		"n.jpg":        KindUnknown,
-		"o.jpeg":       KindUnknown,
-		"p.mp3":        KindUnknown,
+		"a.png":      KindImage,
+		"b.bmp":      KindImage,
+		"c.tif":      KindImage,
+		"d.tiff":     KindImage,
+		"e.wav":      KindAudio,
+		"f.pdf":      KindPDF,
+		"g.txt":      KindText,
+		"h.md":       KindText,
+		"i.markdown": KindText,
+		"j.mp4":      KindVideo,
+		"k.mkv":      KindVideo,
+		"l.webm":     KindVideo,
+		"m.unknown":  KindUnknown,
+		"n.jpg":      KindUnknown,
+		"o.jpeg":     KindUnknown,
+		"p.mp3":      KindUnknown,
 	}
 	for name, want := range cases {
 		got, err := DetectKind(name)

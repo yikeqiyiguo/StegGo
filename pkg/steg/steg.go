@@ -94,10 +94,10 @@ func BuildSecretPayload(secretPath string, password []byte, opts Options) ([]byt
 	}
 
 	var (
-		raw      []byte
-		name     string
-		isDir    bool
-		rawSize  int64
+		raw     []byte
+		name    string
+		isDir   bool
+		rawSize int64
 	)
 
 	if opts.DirMode {

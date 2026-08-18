@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StegGo 浏览器离线审计</title>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --line: #334155; --txt: #e2e8f0;
+    --dim: #94a3b8; --ok: #22c55e; --warn: #eab308; --err: #ef4444; --acc: #14b8a6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--txt); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; min-height: 100vh; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 20px; }
+  header { text-align: center; margin-bottom: 28px; }
+  header h1 { font-size: 26px; color: var(--acc); letter-spacing: 1px; }
+  header p { color: var(--dim); margin-top: 8px; font-size: 14px; }
+  .badge { display: inline-block; background: rgba(20,184,166,.12); color: var(--acc);
+    border: 1px solid rgba(20,184,166,.35); border-radius: 20px; padding: 3px 12px; font-size: 12px; margin-top: 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; margin-bottom: 18px; }
+  .card h2 { font-size: 16px; margin-bottom: 14px; color: var(--txt); }
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 30px; text-align: center;
+    cursor: pointer; transition: .2s; color: var(--dim); font-size: 14px; }
+  .drop:hover, .drop.drag { border-color: var(--acc); color: var(--acc); background: rgba(20,184,166,.05); }
+  .drop input { display: none; }
+  .fileinfo { margin-top: 10px; font-size: 13px; color: var(--dim); word-break: break-all; }
+  .btns { display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+  button { flex: 1; min-width: 160px; padding: 12px; border: none; border-radius: 10px;
+    font-size: 14px; cursor: pointer; transition: .15s; font-weight: 600; }
+  .btn-audit { background: var(--acc); color: #06201c; }
+  .btn-scan { background: var(--card); color: var(--txt); border: 1px solid var(--line); }
+  button:hover { transform: translateY(-1px); filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+  #status { margin-top: 12px; font-size: 13px; color: var(--dim); }
+  #result { display: none; margin-top: 4px; }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; font-size: 14px; margin-top: 10px; }
+  .kv b { color: var(--dim); font-weight: 500; }
+  .verdict-ok { color: var(--ok); font-weight: 600; }
+  .verdict-warn { color: var(--warn); font-weight: 600; }
+  .verdict-err { color: var(--err); font-weight: 600; }
+  .note { margin-top: 14px; padding: 10px 14px; background: rgba(148,163,184,.08);
+    border-left: 3px solid var(--acc); border-radius: 6px; font-size: 13px; color: var(--dim); }
+  .privacy { text-align: center; color: var(--dim); font-size: 12px; margin-top: 22px; }
+  .privacy b { color: var(--acc); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🔍 StegGo 浏览器离线审计</h1>
+    <p>纯前端 WASM 解析，图像数据不出本机（只读审计，不支持写入）</p>
+    <span class="badge" id="versionBadge">加载中…</span>
+  </header>
+
+  <div class="card">
+    <h2>选择图像</h2>
+    <div class="drop" id="drop">
+      <div>点击选择 或 拖拽图像到此处（PNG / JPEG / GIF / BMP / TIFF）</div>
+      <input type="file" id="file" accept="image/*">
+    </div>
+    <div class="fileinfo" id="fileinfo"></div>
+    <div class="btns">
+      <button class="btn-audit" id="btnAudit" disabled>审计分析（卡方 / RS）</button>
+      <button class="btn-scan" id="btnScan" disabled>载荷扫描（只读）</button>
+    </div>
+    <div id="status">请选择图像文件开始离线审计</div>
+  </div>
+
+  <div class="card" id="result">
+    <h2>审计结果</h2>
+    <div class="kv" id="kv"></div>
+    <div class="note" id="note"></div>
+  </div>
+
+  <p class="privacy"><b>隐私声明：</b>所有分析均在您的浏览器本地完成，不向任何服务器上传数据。</p>
+</div>
+
+<script src="wasm_exec.js"></script>
+<script>
+  const go = new Go();
+  const fileInput = document.getElementById('file');
+  const drop = document.getElementById('drop');
+  const fileinfo = document.getElementById('fileinfo');
+  const btnAudit = document.getElementById('btnAudit');
+  const btnScan = document.getElementById('btnScan');
+  const status = document.getElementById('status');
+  const result = document.getElementById('result');
+  const kv = document.getElementById('kv');
+  const note = document.getElementById('note');
+
+  let currentBytes = null;
+  let currentName = '';
+
+  WebAssembly.instantiateStreaming(fetch('steggo.wasm'), go.importObject)
+    .then(obj => {
+      go.run(obj.instance);
+      document.getElementById('versionBadge').textContent = 'StegGo ' + steggoVersion() + ' · 离线可用';
+      status.textContent = 'WASM 引擎已就绪，请选择图像文件';
+    })
+    .catch(e => {
+      document.getElementById('versionBadge').textContent = 'WASM 加载失败';
+      status.textContent = '加载失败: ' + e;
+    });
+
+  drop.addEventListener('click', () => fileInput.click());
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('drag');
+    if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => { if (fileInput.files.length) loadFile(fileInput.files[0]); });
+
+  function loadFile(f) {
+    currentName = f.name;
+    f.arrayBuffer().then(buf => {
+      currentBytes = new Uint8Array(buf);
+      const mb = (currentBytes.length / 1048576).toFixed(2);
+      fileinfo.textContent = `${f.name} · ${mb} MB`;
+      btnAudit.disabled = false;
+      btnScan.disabled = false;
+      status.textContent = '已加载，可执行审计分析或载荷扫描';
+      result.style.display = 'none';
+    });
+  }
+
+  function run(fn) {
+    if (!currentBytes) return;
+    status.textContent = '分析中…';
+    fn.disabled = true;
+    setTimeout(() => {
+      try {
+        const out = JSON.parse(analyzeOrScan(fn === btnAudit));
+        showResult(out);
+        status.textContent = '分析完成（全部在本机完成）';
+      } catch (e) {
+        status.textContent = '失败: ' + e;
+      }
+      fn.disabled = false;
+    }, 30);
+  }
+
+  function analyzeOrScan(isAudit) {
+    return isAudit ? steggoAnalyze(currentBytes) : steggoScan(currentBytes);
+  }
+
+  function showResult(r) {
+    if (r.error) { status.textContent = '失败: ' + r.error; return; }
+    result.style.display = 'block';
+    const rows = [
+      ['文件', currentName],
+      ['尺寸', `${r.width} × ${r.height} 像素`],
+      ['卡方 P 值', r.chiSquare < 0.05 ? `<span class="verdict-warn">${r.chiSquare.toFixed(4)}（疑似隐写）</span>` : `${r.chiSquare.toFixed(4)}`],
+      ['RS 嵌入率', (r.embedRate * 100).toFixed(1) + ' %'],
+      ['载荷魔数', r.magic || '未发现'],
+      ['魔数偏移', r.magic ? r.magicBit + ' (bit)' : '—'],
+      ['判定', `<span class="${r.magic ? 'verdict-warn' : r.chiSquare < 0.05 ? 'verdict-warn' : 'verdict-ok'}">${r.verdict}</span>`],
+    ];
+    kv.innerHTML = rows.map(([k, v]) => `<b>${k}</b><span>${v}</span>`).join('');
+    note.textContent = r.note || '';
+  }
+
+  btnAudit.addEventListener('click', () => run(btnAudit));
+  btnScan.addEventListener('click', () => run(btnScan));
+</script>
+</body>
+</html>

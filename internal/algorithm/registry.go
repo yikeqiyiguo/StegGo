@@ -8,4 +8,5 @@ func init() {
 	Register(NewHUGO())
 	Register(NewWOW())
 	Register(NewUNIWARD())
+	Register(NewAnchored())
 }

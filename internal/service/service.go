@@ -18,6 +18,7 @@ import (
 	"steggo/internal/carrier"
 	"steggo/internal/common"
 	"steggo/internal/crypto"
+	"steggo/internal/crypto/ecc"
 	v1crypto "steggo/pkg/crypto"
 	v1steg "steggo/pkg/steg"
 )
@@ -53,6 +54,12 @@ type Options struct {
 	KeyFile    []byte // KeyFile 内容
 	UseKeyFile bool
 	UseMachine bool
+	UseSM4     bool   // 是否使用 SM4-GCM 国密算法加密（默认 AES-256-GCM）
+	KyberPub   []byte // ML-KEM-768 接收方公钥（后量子混合加密，隐藏时提供）
+	KyberPriv  []byte // ML-KEM-768 私钥（后量子解密，提取时提供）
+
+	// 容错编码
+	ECC string // Reed-Solomon 纠错等级: low|medium|high（空 = 关闭）
 
 	// 数据选项
 	Name     string // 嵌入时覆盖文件名（默认取 SecretPath 文件名）
@@ -72,11 +79,18 @@ type Result struct {
 	IsDir       bool
 	Deniable    bool
 	Region      string // 可否认提取命中区：real|fake
+	Kyber       bool   // 载荷是否使用后量子混合加密
 	Size        int64  // 明文原始大小
 	OutPath     string // 输出载体/输出目录
 	CarrierSize int64  // 载体文件大小
 	V1Compat    bool   // 是否通过 V1.0 兼容路径完成
 	Elapsed     time.Duration
+
+	// Reed-Solomon 容错编码统计（仅启用 ECC 的载荷）
+	ECCLevel           string
+	ECCBlocks          int
+	ECCCorrectedErrors int
+	ECCRepairRate      float64
 }
 
 // serviceErr 带阶段的业务错误。
@@ -113,6 +127,14 @@ func (o *Options) validate() error {
 	}
 	if o.Algorithm == "" {
 		o.Algorithm = "lsb"
+	}
+	if o.ECC != "" {
+		if _, err := eccLevel(o.ECC); err != nil {
+			return err
+		}
+	}
+	if len(o.KyberPriv) > 0 && len(o.KyberPub) > 0 {
+		return errors.New("公钥与私钥不能同时提供")
 	}
 	return nil
 }
@@ -174,6 +196,8 @@ func (s *Service) Embed(opt Options) (*Result, error) {
 		KeyFile:    opt.KeyFile,
 		UseKeyFile: opt.UseKeyFile,
 		UseMachine: opt.UseMachine,
+		UseSM4:     opt.UseSM4,
+		KyberPub:   opt.KyberPub,
 		IsDir:      isDir,
 	}
 	var (
@@ -181,6 +205,9 @@ func (s *Service) Embed(opt Options) (*Result, error) {
 		meta    *crypto.Meta
 	)
 	if opt.FakeFile != "" && len(opt.FakePassword) > 0 {
+		if len(opt.KyberPub) > 0 {
+			return nil, errors.New("后量子加密（--kyber-pub）与可否认隐写（--fake-file）暂不支持组合")
+		}
 		fake, ferr := os.ReadFile(opt.FakeFile)
 		if ferr != nil {
 			return nil, wrapErr("读取诱饵文件", ferr)
@@ -196,6 +223,15 @@ func (s *Service) Embed(opt Options) (*Result, error) {
 		return nil, wrapErr("构建加密载荷", err)
 	}
 	defer common.Wipe(payload)
+
+	// 可选 Reed-Solomon 容错编码：抗社交压缩与局部损坏。
+	// 编码后的流整体嵌入载体，提取阶段先纠错再定位解密。
+	if opt.ECC != "" {
+		payload, _, err = wrapECC(payload, opt.ECC)
+		if err != nil {
+			return nil, wrapErr("RS 容错编码", err)
+		}
+	}
 
 	// 3. 派生坐标种子并嵌入载体。
 	//    普通载荷与可否认载荷统一使用固定定位种子（见 deniableSeed 说明）。
@@ -310,12 +346,12 @@ func (s *Service) Extract(opt Options) (*Result, error) {
 	v1res, v1err := s.extractV1Compat(opt, outDir)
 	if v1err == nil {
 		res := &Result{
-			Name:      v1res.Name,
-			Size:      v1res.RawSize,
-			IsDir:     v1res.IsDir,
-			OutPath:   outDir,
-			V1Compat:  true,
-			Elapsed:   time.Since(start),
+			Name:     v1res.Name,
+			Size:     v1res.RawSize,
+			IsDir:    v1res.IsDir,
+			OutPath:  outDir,
+			V1Compat: true,
+			Elapsed:  time.Since(start),
 		}
 		s.audit("extract", opt.CarrierPath, outDir, res, nil)
 		return res, nil
@@ -337,17 +373,31 @@ func extractErr(v2err, v1err error) error {
 
 // resolveAndWrite 解析 V3 载荷并写出。
 func (s *Service) resolveAndWrite(stream []byte, algo string, bitDepth int, opt Options, outDir string, start time.Time, v1 bool) (*Result, error) {
-	payload, err := crypto.TrimPayload(stream)
+	// 可选 Reed-Solomon 纠错：先恢复受损位流，再定位解密。
+	payload := stream
+	var (
+		eccLevel string
+		estats   *ecc.Stats
+	)
+	if decoded, lv, stats, ok, eerr := unwrapECC(stream); ok {
+		if eerr != nil {
+			return nil, wrapErr("RS 纠错解码", eerr)
+		}
+		payload = decoded
+		eccLevel = lv
+		estats = stats
+	}
+	trimmed, err := crypto.TrimPayload(payload)
 	if err != nil {
 		return nil, wrapErr("载荷定位", err)
 	}
-	parseOpt := &crypto.ParseOptions{Password: opt.Password, KeyFile: opt.KeyFile}
+	parseOpt := &crypto.ParseOptions{Password: opt.Password, KeyFile: opt.KeyFile, KyberPriv: opt.KyberPriv}
 
-	plain, meta, perr := crypto.ParsePayload(payload, parseOpt)
+	plain, meta, perr := crypto.ParsePayload(trimmed, parseOpt)
 	region := ""
 	if perr != nil {
 		// 可否认载荷：尝试双密文解析
-		plain, region, meta, perr = crypto.ParseDeniablePayload(payload, opt.Password, parseOpt)
+		plain, region, meta, perr = crypto.ParseDeniablePayload(trimmed, opt.Password, parseOpt)
 		if perr != nil {
 			return nil, wrapErr("载荷解密", perr)
 		}
@@ -365,11 +415,18 @@ func (s *Service) resolveAndWrite(stream []byte, algo string, bitDepth int, opt 
 		IsDir:       meta.IsDir,
 		Deniable:    meta.Deniable,
 		Region:      region,
+		Kyber:       meta.Kyber,
 		Size:        meta.Size,
 		OutPath:     outDir,
 		CarrierSize: fileSize(opt.CarrierPath),
 		V1Compat:    v1,
 		Elapsed:     time.Since(start),
+	}
+	if estats != nil {
+		res.ECCLevel = eccLevel
+		res.ECCBlocks = estats.Blocks
+		res.ECCCorrectedErrors = estats.CorrectedErrors
+		res.ECCRepairRate = estats.RepairRate
 	}
 	s.audit("extract", opt.CarrierPath, outDir, res, nil)
 	return res, nil
@@ -388,6 +445,12 @@ func (s *Service) extractV1Compat(opt Options, outDir string) (*v1steg.Result, e
 func extractStream(path string, opt Options, seed []byte) ([]byte, string, int, error) {
 	kind, err := carrier.DetectKind(path)
 	if err != nil {
+		// JPEG 有损格式：嵌入侧禁止（会破坏隐写数据），但提取侧放行——
+		// 特征点锚定（anchored）与 DCT 算法专为"发送至社交平台后被重压缩"
+		// 的场景设计，需要从已压缩的 JPEG 中恢复载荷。
+		if errors.Is(err, carrier.ErrLossyFormat) && carrier.IsJPEG(path) {
+			return scanImageExtract(path, opt, seed)
+		}
 		return nil, "", 0, wrapErr("载体识别", err)
 	}
 	if kind == carrier.KindImage {

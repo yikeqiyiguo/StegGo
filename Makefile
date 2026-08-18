@@ -1,13 +1,13 @@
-# StegGo V2.0 Makefile
+# StegGo V2.2 Makefile
 # Windows 用户请使用 build.ps1 或直接运行 go build。
 
 GO      ?= go
 LDFLAGS := -s -w
-VERSION ?= 2.0.0
+VERSION ?= 2.2.0
 BIN     := steggo
 TUI     := steggo-tui
 
-.PHONY: all build tui gui test test-race vet lint clean install smoke docker cross
+.PHONY: all build tui gui test test-race vet lint clean install smoke docker cross termux wasm
 
 all: build tui
 
@@ -19,6 +19,18 @@ tui: ## 构建 TUI
 
 gui: ## 构建 GUI（需要 cgo + C 编译器；Windows 需 MinGW-w64，Linux 需 xorg-dev）
 	cd cmd/gui && CGO_ENABLED=1 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o ../../steggo-gui .
+
+termux: ## 构建 Android Termux ARM64 包（移动端离线解密）
+	@mkdir -p dist/termux
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o dist/termux/steggo ./cmd/cli
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o dist/termux/steggo-tui ./cmd/tui
+	@echo "  dist/termux/{steggo,steggo-tui}（在 Termux 中 chmod +x 后运行）"
+
+wasm: ## 构建 WASM 浏览器离线审计
+	@mkdir -p dist
+	GOOS=js GOARCH=wasm CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o dist/steggo.wasm ./wasm
+	cp "$$($(GO) env GOROOT)/lib/wasm/wasm_exec.js" dist/
+	@echo "  dist/steggo.wasm + wasm_exec.js（配合 wasm/index.html 使用）"
 
 cross: ## 交叉构建 dist/（Linux/macOS/Windows × amd64/arm64）
 	@mkdir -p dist

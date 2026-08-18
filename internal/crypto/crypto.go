@@ -22,7 +22,7 @@ import (
 //
 //	[magic 8B]        "STEGGO3A"
 //	[version 1B]      3
-//	[flags 1B]        bit0=ZIP bit1=目录 bit2=流式 bit3=Kyber bit4=可否认 bit5=KeyFile bit6=机器指纹
+//	[flags 1B]        bit0=ZIP bit1=目录 bit2=流式 bit3=Kyber bit4=可否认 bit5=KeyFile bit6=机器指纹 bit7=SM4国密
 //	[algoID 1B]       算法标识
 //	[bitDepth 1B]     嵌入位数 1-4
 //	[nameLen 2B BE]
@@ -39,13 +39,15 @@ const (
 	// versionV3 头部版本
 	versionV3 byte = 3
 
-	flagZIP       byte = 1 << 0
-	flagDir       byte = 1 << 1
-	flagStream    byte = 1 << 2
-	flagKyber     byte = 1 << 3
-	flagDeniable  byte = 1 << 4
-	flagKeyFile   byte = 1 << 5
-	flagMachine   byte = 1 << 6
+	flagZIP      byte = 1 << 0
+	flagDir      byte = 1 << 1
+	flagStream   byte = 1 << 2
+	flagKyber    byte = 1 << 3
+	flagDeniable byte = 1 << 4
+	flagKeyFile  byte = 1 << 5
+	flagMachine  byte = 1 << 6
+	// flagSM4 定义在 sm4body.go（bit7），此处仅为文档占位保持一致。
+	// flagSM4 byte = 1 << 7
 
 	// v3HeaderFixed 头部固定字节数（不含文件名）
 	v3HeaderFixed = 8 + 1 + 1 + 1 + 1 + 2 + 16 + 12 + 4 + 32
@@ -64,12 +66,14 @@ const (
 	AlgoHUGO    byte = 3
 	AlgoWOW     byte = 4
 	AlgoUNIWARD byte = 5
+	AlgoANCHOR  byte = 6
 )
 
 // AlgoNames 算法标识 → 名称。
 var AlgoNames = map[byte]string{
 	AlgoLSB: "lsb", AlgoDCT: "dct", AlgoDWT: "dwt",
 	AlgoHUGO: "hugo", AlgoWOW: "wow", AlgoUNIWARD: "uniward",
+	AlgoANCHOR: "anchored",
 }
 
 // AlgoIDToName 算法 ID 转名称。
@@ -104,15 +108,15 @@ type Meta struct {
 
 // Header 是解析出的 V3 头部。
 type Header struct {
-	Version    byte
-	Flags      byte
-	Algorithm  byte
-	BitDepth   int
-	Name       string
-	Salt       []byte
-	Nonce      []byte
-	CipherLen  int
-	CipherSum  [32]byte
+	Version   byte
+	Flags     byte
+	Algorithm byte
+	BitDepth  int
+	Name      string
+	Salt      []byte
+	Nonce     []byte
+	CipherLen int
+	CipherSum [32]byte
 }
 
 // EncodeV3Header 序列化 V3 头部。
@@ -179,16 +183,17 @@ func ParseV3Header(stream []byte) (*Header, int, error) {
 
 // BuildOptions 描述一次数据加密处理的参数。
 type BuildOptions struct {
-	Name      string // 原始文件名
-	Algorithm string // 算法名称（写入头部）
-	BitDepth  int    // 嵌入位数（写入头部）
-	Compress  bool   // 是否启用 ZIP 压缩
-	Password  []byte // 密码（调用方负责使用后清理）
-	KeyFile   []byte // KeyFile 内容（启用时参与密钥派生）
-	UseKeyFile bool  // 是否启用 KeyFile 因子
-	UseMachine bool  // 是否绑定本机硬件指纹因子
-	Kyber     bool   // 是否启用后量子加密（当前版本未内置，启用会返回明确错误）
-	IsDir     bool   // 是否为目录打包
+	Name       string // 原始文件名
+	Algorithm  string // 算法名称（写入头部）
+	BitDepth   int    // 嵌入位数（写入头部）
+	Compress   bool   // 是否启用 ZIP 压缩
+	Password   []byte // 密码（调用方负责使用后清理）
+	KeyFile    []byte // KeyFile 内容（启用时参与密钥派生）
+	UseKeyFile bool   // 是否启用 KeyFile 因子
+	UseMachine bool   // 是否绑定本机硬件指纹因子
+	UseSM4     bool   // 是否使用 SM4-GCM 国密算法加密（默认 AES-256-GCM）
+	KyberPub   []byte // ML-KEM-768 接收方公钥（提供时启用后量子混合加密）
+	IsDir      bool   // 是否为目录打包
 }
 
 // composeSecret 按启用的因子组合密钥材料。
@@ -209,16 +214,13 @@ func composeSecret(password, keyfile []byte, useKeyFile, useMachine bool) []byte
 
 // BuildPayload 构建 V3 加密载荷：
 //
-//	可选压缩 → 组合三因子 → PBKDF2 派生 → AES-256-GCM 加密 → SHA256 绑定 → V3 头部。
+//	可选压缩 → 组合三因子 → PBKDF2 派生 → AES-256-GCM / SM4-GCM 加密 → SHA256 绑定 → V3 头部。
 func BuildPayload(data []byte, opt *BuildOptions) ([]byte, *Meta, error) {
 	if opt == nil {
 		return nil, nil, errors.New("缺少加密参数")
 	}
 	if len(opt.Password) == 0 && len(opt.KeyFile) == 0 {
 		return nil, nil, errors.New("至少需要密码或密钥文件之一")
-	}
-	if opt.Kyber {
-		return nil, nil, common.ErrUnsupported
 	}
 
 	secret := composeSecret(opt.Password, opt.KeyFile, opt.UseKeyFile, opt.UseMachine)
@@ -235,10 +237,39 @@ func BuildPayload(data []byte, opt *BuildOptions) ([]byte, *Meta, error) {
 		toBe, isZIP = z, ok
 	}
 
-	// 2. 加密（V1.0 同布局，保证兼容）
-	ciphertext, err := v1crypto.Encrypt(toBe, secret)
-	if err != nil {
-		return nil, nil, err
+	// 2. 加密。
+	//    普通模式：密码 PBKDF2 派生密钥（AES-256-GCM 默认 / SM4-GCM 国密可选，布局一致）。
+	//    Kyber 混合模式：随机 AES-256 主密钥加密，主密钥用 ML-KEM-768 封装后随密文保存
+	//    （密文区 = [封装 1120B][salt 16B][nonce 12B][ciphertext+tag]）。
+	var (
+		ciphertext []byte // 加密体（用于头部 salt/nonce 字段）
+		body       []byte // 完整密文区（写入头部 CipherLen / CipherSum）
+		kyber      bool
+		err        error
+	)
+	if len(opt.KyberPub) > 0 {
+		mk, kerr := randomBytes(v1crypto.KeySize)
+		if kerr != nil {
+			return nil, nil, kerr
+		}
+		defer common.Wipe(mk)
+		ciphertext, err = encryptBodyWithKey(mk, opt.UseSM4, toBe)
+		if err != nil {
+			return nil, nil, err
+		}
+		wrap := &KyberWrap{PubKey: opt.KyberPub}
+		wrapped, werr := wrap.WrapKey(mk)
+		if werr != nil {
+			return nil, nil, werr
+		}
+		body = append(wrapped, ciphertext...)
+		kyber = true
+	} else {
+		ciphertext, err = encryptBody(secret, opt.UseSM4, toBe)
+		if err != nil {
+			return nil, nil, err
+		}
+		body = ciphertext
 	}
 
 	// 3. 组装头部
@@ -255,6 +286,12 @@ func BuildPayload(data []byte, opt *BuildOptions) ([]byte, *Meta, error) {
 	if opt.UseMachine {
 		flags |= flagMachine
 	}
+	if opt.UseSM4 {
+		flags |= flagSM4
+	}
+	if kyber {
+		flags |= flagKyber
+	}
 	algoID, _ := AlgoNameToID(opt.Algorithm)
 	head := EncodeV3Header(&Header{
 		Flags:     flags,
@@ -263,13 +300,13 @@ func BuildPayload(data []byte, opt *BuildOptions) ([]byte, *Meta, error) {
 		Name:      opt.Name,
 		Salt:      ciphertext[:16],
 		Nonce:     ciphertext[16:28],
-		CipherLen: len(ciphertext),
-		CipherSum: sha256.Sum256(ciphertext),
+		CipherLen: len(body),
+		CipherSum: sha256.Sum256(body),
 	})
 
-	out := make([]byte, 0, len(head)+len(ciphertext))
+	out := make([]byte, 0, len(head)+len(body))
 	out = append(out, head...)
-	out = append(out, ciphertext...)
+	out = append(out, body...)
 
 	meta := &Meta{
 		Name:      opt.Name,
@@ -278,7 +315,7 @@ func BuildPayload(data []byte, opt *BuildOptions) ([]byte, *Meta, error) {
 		Algorithm: AlgoIDToName(algoID),
 		BitDepth:  opt.BitDepth,
 		Size:      int64(len(data)),
-		Kyber:     false,
+		Kyber:     kyber,
 	}
 	return out, meta, nil
 }
@@ -287,6 +324,7 @@ func BuildPayload(data []byte, opt *BuildOptions) ([]byte, *Meta, error) {
 type ParseOptions struct {
 	Password  []byte // 密码（调用方负责清理）
 	KeyFile   []byte // KeyFile 内容
+	KyberPriv []byte // ML-KEM-768 私钥（载荷启用后量子加密时必需）
 }
 
 // TrimPayload 从提取流中截取精确载荷。
@@ -324,15 +362,34 @@ func ParsePayload(payload []byte, opt *ParseOptions) ([]byte, *Meta, error) {
 	secret := composeSecret(opt.Password, opt.KeyFile, head.Flags&flagKeyFile != 0, head.Flags&flagMachine != 0)
 	defer common.Wipe(secret)
 
-	ciphertext := payload[headLen:]
-	if len(ciphertext) != head.CipherLen {
+	cipherData := payload[headLen:]
+	if len(cipherData) != head.CipherLen {
 		return nil, nil, errors.New("密文长度与头部不一致，载体可能已损坏")
 	}
-	sum := sha256.Sum256(ciphertext)
+	sum := sha256.Sum256(cipherData)
 	if sum != head.CipherSum {
 		return nil, nil, errors.New("全局哈希校验失败：载体已被篡改")
 	}
-	plaintext, err := v1crypto.Decrypt(ciphertext, secret)
+	kyber := head.Flags&flagKyber != 0
+	var plaintext []byte
+	if kyber {
+		// 后量子混合加密：先解封装出 AES 主密钥，再解密密文
+		if len(opt.KyberPriv) == 0 {
+			return nil, nil, errors.New("载荷使用后量子加密（ML-KEM-768），需提供 --kyber-priv 私钥")
+		}
+		if len(cipherData) < KyberCipherSize+common.ToolKeySize+v1crypto.SaltSize+v1crypto.NonceSize+v1crypto.TagSize {
+			return nil, nil, errors.New("后量子密文数据过短，载体可能已损坏")
+		}
+		wrap := &KyberWrap{PrivKey: opt.KyberPriv}
+		mk, kerr := wrap.UnwrapKey(cipherData[:KyberCipherSize+common.ToolKeySize])
+		if kerr != nil {
+			return nil, nil, errors.New("后量子解封装失败：私钥不匹配或数据已损坏")
+		}
+		defer common.Wipe(mk)
+		plaintext, err = decryptBodyWithKey(mk, head.Flags&flagSM4 != 0, cipherData[KyberCipherSize+common.ToolKeySize:])
+	} else {
+		plaintext, err = decryptBody(secret, head.Flags&flagSM4 != 0, cipherData)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -343,7 +400,7 @@ func ParsePayload(payload []byte, opt *ParseOptions) ([]byte, *Meta, error) {
 		Algorithm: AlgoIDToName(head.Algorithm),
 		BitDepth:  head.BitDepth,
 		Size:      int64(len(plaintext)),
-		Kyber:     head.Flags&flagKyber != 0,
+		Kyber:     kyber,
 		Deniable:  head.Flags&flagDeniable != 0,
 	}
 	return plaintext, meta, nil

@@ -17,7 +17,7 @@ type lsb struct{}
 // NewLSB 创建 LSB 算法实例。
 func NewLSB() Algorithm { return &lsb{} }
 
-func (a *lsb) ID() byte   { return IDLSB }
+func (a *lsb) ID() byte     { return IDLSB }
 func (a *lsb) Name() string { return "lsb" }
 
 // Capacity 返回最大可嵌入位数。

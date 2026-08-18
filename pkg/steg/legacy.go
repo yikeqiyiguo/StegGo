@@ -7,8 +7,8 @@ import (
 	"errors"
 	"image"
 
-	"golang.org/x/crypto/pbkdf2"
 	"crypto/sha256"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 // =============================================================
@@ -120,7 +120,11 @@ func legacyDecrypt(data, password []byte) ([]byte, error) {
 	nonce := data[saltSize : saltSize+nonceSize]
 	ciphertext := data[saltSize+nonceSize:]
 	key := pbkdf2.Key(password, salt, iterations, keySize, sha256.New)
-	defer func() { for i := range key { key[i] = 0 } }()
+	defer func() {
+		for i := range key {
+			key[i] = 0
+		}
+	}()
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err

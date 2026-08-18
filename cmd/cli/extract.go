@@ -6,17 +6,21 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"steggo/internal/crypto"
 	"steggo/internal/service"
 )
 
 func newExtractCmd() *cobra.Command {
 	var (
-		carrierPath string
-		output      string
-		pass        string
-		keyfile     string
-		useMachine  bool
-		algorithm   string
+		carrierPath  string
+		output       string
+		pass         string
+		keyfile      string
+		useMachine   bool
+		algorithm    string
+		usbDir       string
+		passwordFile string
+		kyberPriv    string
 	)
 	cmd := &cobra.Command{
 		Use:     "extract -c <载体> [-o <输出目录>] [-p <密码>]",
@@ -30,13 +34,14 @@ V1.0 载体自动走兼容路径提取。
 安全特性：
   - SHA256 完整性校验：载体被篡改立即报错
   - 密码错误/数据损坏返回统一错误，不泄露内部细节
-  - 可否认载体：真实密码还原真实文件，诱饵密码还原诱饵`,
+  - 可否认载体：真实密码还原真实文件，诱饵密码还原诱饵
+  - 后量子载荷需 --kyber-priv 私钥解封装；RS-ECC 载荷自动纠错（无需参数）`,
 		Example: `  steggo extract -c cover.png.steg.png -p 密码
   steggo extract -c cover.png.steg.png -o ./out -p 密码
   steggo extract -c carrier.png --keyfile key.bin -p 密码`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			quiet, _ := cmd.Flags().GetBool("quiet")
-			password, err := resolvePassword(pass, "输入密码: ")
+			password, err := resolvePasswordEx(pass, passwordFile, "输入密码: ")
 			if err != nil {
 				return err
 			}
@@ -64,6 +69,17 @@ V1.0 载体自动走兼容路径提取。
 				opt.KeyFile, opt.UseKeyFile = kf, true
 			}
 			opt.UseMachine = useMachine
+			if err := applyUSBKey(&opt, usbDir); err != nil {
+				return err
+			}
+			if kyberPriv != "" {
+				priv, kerr := readKyberKey(kyberPriv, crypto.KyberPrivKeySize, "私钥")
+				if kerr != nil {
+					return fmt.Errorf("读取后量子私钥: %w", kerr)
+				}
+				defer wipe(priv)
+				opt.KyberPriv = priv
+			}
 			res, err := svc.Extract(opt)
 			if err != nil {
 				return err
@@ -81,6 +97,13 @@ V1.0 载体自动走兼容路径提取。
 				} else {
 					fmt.Printf("[+] 算法=%s 位深=%d\n", res.Algorithm, res.BitDepth)
 				}
+				if res.Kyber {
+					fmt.Println("[+] 后量子解密: ML-KEM-768 主密钥解封装成功")
+				}
+				if res.ECCLevel != "" {
+					fmt.Printf("[+] RS-ECC 纠错: %s 级 | %d 块 | 修复 %d 符号 | 完好率 %.1f%%\n",
+						res.ECCLevel, res.ECCBlocks, res.ECCCorrectedErrors, res.ECCRepairRate*100)
+				}
 			}
 			return nil
 		},
@@ -91,5 +114,8 @@ V1.0 载体自动走兼容路径提取。
 	cmd.Flags().StringVar(&keyfile, "keyfile", "", "密钥文件（三因子）")
 	cmd.Flags().BoolVar(&useMachine, "machine", false, "绑定本机指纹（三因子）")
 	cmd.Flags().StringVar(&algorithm, "algorithm", "", "指定算法（优先尝试；不传则自动扫描）")
+	cmd.Flags().StringVar(&usbDir, "usb", "", "USB 密钥盘目录（令牌+设备序列号绑定解锁）")
+	cmd.Flags().StringVar(&passwordFile, "password-file", "", "从文件读取密码（首行，crontab 场景推荐）")
+	cmd.Flags().StringVar(&kyberPriv, "kyber-priv", "", "后量子私钥文件（ML-KEM-768，解封装混合加密载荷）")
 	return cmd
 }

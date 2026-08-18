@@ -30,11 +30,11 @@ import (
 var MagicV2 = []byte("STEGGO2A")
 
 const (
-	versionV2        = 2
-	flagZIP    byte  = 1 << 0
-	flagDir    byte  = 1 << 1
-	flagStream byte  = 1 << 2
-	headerFixedBytes = 8 + 1 + 1 + 1 + 2 + 16 + 12 + 4 + 32 // 77
+	versionV2             = 2
+	flagZIP          byte = 1 << 0
+	flagDir          byte = 1 << 1
+	flagStream       byte = 1 << 2
+	headerFixedBytes      = 8 + 1 + 1 + 1 + 2 + 16 + 12 + 4 + 32 // 77
 )
 
 // Meta 描述一次隐写的数据元信息。

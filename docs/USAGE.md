@@ -1,6 +1,6 @@
 # StegGo 使用文档
 
-> 本文档面向用户，介绍 StegGo V2.1.1 的全部功能与三端（CLI / TUI / GUI）操作方式。
+> 本文档面向用户，介绍 StegGo V2.2.0 的全部功能与四端（CLI / TUI / GUI / WASM）操作方式。
 > 开发者 SDK 文档请见 [SDK.md](SDK.md)。
 
 ---
@@ -11,12 +11,22 @@ StegGo 是一款**完全离线**的抗检测隐写工具，支持将任意文件
 
 | 能力 | 说明 |
 |------|------|
-| **六算法隐写** | LSB / DCT-QIM / DWT-QIM / HUGO / WOW / UNIWARD，注册表插件化可扩展 |
+| **七算法隐写** | LSB / DCT-QIM / DWT-QIM / HUGO / WOW / UNIWARD / 锚定（anchored，抗旋转/裁剪/JPEG 重压缩），注册表插件化可扩展 |
 | **自动扫描提取** | 无需记住算法与参数，自动遍历矩阵组合直至通过完整性校验 |
-| **三因子加密** | 密码 + 密钥文件 + 本机指纹 → PBKDF2-SHA256 → AES-256-GCM |
+| **四因子加密** | 密码 + 密钥文件 + 本机指纹 + USB 密钥盘 → PBKDF2-SHA256 → AES-256-GCM / SM4-GCM |
+| **后量子加密** | ML-KEM-768（Kyber 标准，FIPS 203，标准库零依赖）：随机 AES 主密钥经公钥封装，防量子计算破解 |
+| **RS-ECC 容错** | RS(255,239) Reed-Solomon 前向纠错（low/medium/high 三档），抗社交压缩与载体局部损坏 |
+| **SM4 国密** | GB/T 32907-2016 纯 Go 实现，商用密码合规场景 `--sm4` 一键切换，布局与 AES 完全兼容 |
 | **可否认加密** | `--fake-file/--fake-pass` 双密文结构，假密码仅解开诱饵区 |
+| **插件框架** | 统一注册中心（7 类 24 个内置插件），`plugin` 命令发现与校验，第三方可扩展 |
 | **数字水印** | 公开可提取的版权标记（固定种子 LSB 嵌入） |
-| **套娃嵌套** | 多层载体递归隐写，每层独立加密 |
+| **套娃嵌套** | 多层载体递归隐写，每层独立加密；`expand` 一键自动展开全部层级 |
+| **预设模板** | `--preset secrecy/balance/quality` 一键切换算法与位深参数 |
+| **.sg 独立容器** | 载体整体 AES/SM4 加密打包（魔数 `STEGGO4C`），独立分发 |
+| **审计台账** | 操作日志 SHA256 哈希链防篡改，`ledger export` 导出 PDF 台账 |
+| **批量任务清单** | TXT/CSV 清单 `task run` 批量执行隐写/提取 |
+| **定时调度** | `schedule cron` 生成 crontab 定时自动解密备份 |
+| **WASM 离线审计** | 浏览器纯前端只读审计（扫描/解析/元数据），数据不出本机 |
 | **Shamir 门限分片** | GF(2^8) (k,n) 分片，任意 k 片恢复 |
 | **自检审计** | 卡方检验 / RS 分析 / SPA 分析，提前验证载体隐蔽性 |
 | **容量预检** | 精确计算 1-4 位深度容量矩阵 |
@@ -43,7 +53,7 @@ StegGo 提供三种交互方式，功能完全一致
 秘密文件 → ZIP 压缩 → AES-256-GCM 加密 → 载荷封装(V3) → 算法嵌入 → 输出载体
 ```
 
-**六算法说明：**
+**七算法说明：**
 
 | 算法 | 原理 | 适用场景 | 可调参数 |
 |------|------|---------|---------|
@@ -53,6 +63,7 @@ StegGo 提供三种交互方式，功能完全一致
 | **HUGO** | 高维通用最陡下降成本函数 | 高安全场景 | 高斯核标准差 |
 | **WOW** | 小波方向性成本加权 | 纹理丰富图像 | 成本函数阈值 |
 | **UNIWARD** | 通用小波域成本加权 | 通用高隐蔽 | 权重参数 |
+| **锚定(anchored)** | FAST 角点锚定 + Haar 小波 QIM（真实 JPEG q75 编解码模拟精化 + 最终校验） | 社交分享：抗旋转/裁剪/JPEG 重压缩，q75 重压缩 100% 可恢复 | 同步扫描邻域、锚点数量下限 |
 
 **三因子加密：** 默认仅密码即可使用；如需更高安全：
 - `--keyfile <文件>`：密钥文件作为第二因子
@@ -75,6 +86,7 @@ LSB: 位深度 2/1/3/4 + 三通道掩码
 DCT: 质量因子 8/16
 DWT: 级数 2/1/3
 HUGO / WOW / UNIWARD: 默认参数
+anchored: 特征点锚定（自动扫描同步区 + 四方向旋转兜底）
 ```
 
 对每种组合尝试提取并校验载荷完整性（SHA256），首个通过的组合即输出。
@@ -99,6 +111,9 @@ HUGO / WOW / UNIWARD: 默认参数
   - 先嵌入 a.png（最内层），再嵌入 b.png，再嵌入 c.png（最外层）
 - 提取：`steggo nested extract -c c.png -d 3 -p pass`
   - 从 c.png 逐层剥开，共 3 层
+- 一键展开：`steggo nested expand -c c.png -p pass -o ./expanded`
+  - 自动探测嵌套深度，每层导出到 `layer_01/`、`layer_02/`…
+  - 任一层不再是可识别载体即视为最内层，无需手动指定层数
 
 ---
 
@@ -182,6 +197,172 @@ GF(2^8) 有限域 (k,n) 分片：
 
 ---
 
+### 12. SM4 国密算法（sm4 / --sm4）
+
+GB/T 32907-2016 国密分组算法（纯 Go，无外部依赖）：
+- 128 位分组 / 128 位密钥 / 32 轮迭代，GCM 认证加密模式
+- 载荷布局与 AES-256-GCM 完全一致：`[salt 16][nonce 12][ciphertext+tag]`
+- 旧载荷魔数不变，V3 载荷 flags bit7 标记 `flagSM4`，新老版本自动识别
+
+```bash
+steggo hide -c photo.png -s secret.txt --sm4 -p pass -o steg.png
+steggo extract -c steg.png -p pass            # 自动识别 SM4 载荷
+```
+
+### 13. USB 硬件密钥绑定（--usb）
+
+USB 密钥盘解锁 = 令牌文件 + 设备序列号双重绑定：
+- 令牌内容与 USB 设备序列号 → SHA256 指纹（32 字节）
+- 令牌被复制到其他设备即失效（设备序列号不匹配）
+- 与密码 / 密钥文件 / 本机指纹组合为四因子
+
+```bash
+# 在 USB 盘（如 E:\usbkey）放置令牌后：
+steggo hide -c photo.png -s secret.txt --usb E:\usbkey -p pass -o steg.png
+steggo extract -c steg.png --usb E:\usbkey -p pass
+```
+
+> `usb` 子命令提供令牌生成/绑定管理：`steggo usb init <目录>`
+
+### 14. .sg 独立容器（sg）
+
+载体级加密打包：将任意载体整体加密为独立 `.sg` 容器（新魔数 `STEGGO4C`）：
+
+```bash
+steggo sg create -i photo.png -o photo.sg -p pass          # AES-256-GCM
+steggo sg create -i photo.png -o photo.sg -p pass --sm4    # SM4-GCM
+steggo sg open -i photo.sg -o ./restored -p pass
+```
+
+- 解密校验失败明确报错；`sg open` 还原原始载体
+- 与隐写流程解耦：可先加密分发，再离线隐写
+
+### 15. 审计台账（ledger）
+
+操作日志 SHA256 哈希链防篡改：
+- 每条记录 `Chain = SHA256(规范化记录 + 前一条 Chain)`
+- 篡改任意历史记录 → 后续链条全部断裂 → `ledger verify` 检出
+- `ledger export` 导出 PDF 台账（手写 PDF writer，中文转义，无外部依赖）
+
+```bash
+steggo ledger export -o audit.pdf
+steggo ledger verify -f audit.pdf
+```
+
+### 16. 批量任务清单（task）与定时调度（schedule）
+
+**任务清单**（TXT 键值对 / CSV 表头两种格式，支持引号包裹含空格路径）：
+
+```bash
+# task.txt
+action=embed
+carrier=C:\数据\载体\photo.png
+secret=C:\数据\secret.txt
+output=C:\数据\out
+password=pass123
+
+# task.csv
+action,carrier,secret,output,password
+extract,D:\backup\nested_03.png,,D:\backup\restored,pass123
+
+steggo task run -f task.txt
+steggo task run -f task.csv
+```
+
+**定时调度**（生成 Linux crontab 解密任务）：
+
+```bash
+steggo schedule cron --carrier /data/nested_03.png --output /backup --password-file /root/.steggo.pass
+# 默认每日 02:30；--install 输出可直接 crontab 使用的片段
+```
+
+### 17. 算法参数预设模板（--preset）
+
+一键切换常用参数组合：
+
+| 预设 | 算法 | 位深 | 适用场景 |
+|------|------|------|---------|
+| `secrecy` | UNIWARD | 1 bit | 保密优先：抗检测最强，容量较小 |
+| `balance` | DWT | 2 bit | 平衡：容量与隐蔽性折中 |
+| `quality` | LSB | 1 bit | 画质优先：视觉质量最好，容量大 |
+
+```bash
+steggo hide -c photo.png -s secret.txt --preset secrecy -o steg.png
+```
+
+### 18. WASM 浏览器离线审计
+
+`wasm/index.html` 纯前端只读审计（构建后约 3.9MB）：
+- 魔数扫描：识别 V2 / V3 载荷
+- 结构解析：算法 / 位深 / 尺寸 / 哈希等元数据
+- 全程离线运行，数据不出本机，无后端依赖
+
+```bash
+.\build.ps1 -Wasm     # Windows
+make wasm             # Linux / macOS
+```
+
+### 19. 后量子混合加密（kyber / --kyber-pub）
+
+ML-KEM-768（Kyber 标准版，NIST FIPS 203）由 Go 标准库 `crypto/mlkem` 实现，**零外部依赖**。私钥为 64 字节种子、公钥 1184 字节，密钥文件以 0600 权限落盘。
+
+**工作方式（混合加密）：**
+1. 随机生成 AES-256 主密钥，加密载荷（配合三因子/密码派生密钥体系）
+2. 主密钥经 ML-KEM-768 公钥封装（密文 1120 字节）写入载荷头
+3. 提取时用私钥解封装出主密钥，再解密载荷
+
+即使攻击者将来拥有量子计算机，也无法由封装密文反推出主密钥，从而保住 AES 会话密钥安全。
+
+```bash
+# ① 生成密钥对（接收方共享公钥，自己保管私钥）
+steggo kyber keygen -o pub.kyb -k priv.kyb
+steggo kyber info                     # 查看算法参数
+
+# ② 嵌入：启用后量子混合加密
+steggo hide -c photo.png -s secret.txt --kyber-pub pub.kyb -p pass -o steg.png
+
+# ③ 提取：私钥解封装主密钥并解密
+steggo extract -c steg.png --kyber-priv priv.kyb -p pass -o ./out/
+```
+
+> 说明：后量子加密与可否认（`--fake-file`）当前暂不组合使用；公钥/私钥参数与普通密码参数互斥校验。
+
+### 20. RS-ECC 容错编码（--ecc）
+
+RS(255,239) Reed-Solomon 前向纠错编码，将载荷按 STECC 包装后嵌入，提取时自动纠错。适用于：社交平台压缩转发、载体局部损坏、传输丢包等场景。
+
+| 等级 | 冗余 | 每块纠错能力 | 适用场景 |
+|------|------|-------------|---------|
+| `low` | 低 | 最多 8 个符号 | 常规传输，开销最小 |
+| `medium` | 中 | 最多 16 个符号 | 一般社交压缩 |
+| `high` | 高 | 最多 64 个符号 | 重压缩/较严重损坏 |
+
+```bash
+steggo hide -c photo.png -s secret.txt --ecc high -p pass -o steg.png
+steggo extract -c steg.png -p pass
+# 输出示例: [+] RS-ECC 纠错: high 级 | 12 块 | 修复 3 符号 | 完好率 99.9%
+```
+
+- 提取与扫描路径自动识别 STECC 包装并纠错，无需额外参数
+- 修复统计随提取结果一并输出；损坏超出纠错上限会明确报错
+- 兼容旧载荷：无 STECC 魔数的载荷按原逻辑处理
+
+### 21. 插件加载框架（plugin）
+
+基础插件加载框架，统一登记全部可扩展能力：
+
+```
+steggo plugin                    # 按类别分组展示全部插件
+steggo plugin --kind algorithm   # 仅查看隐写算法类
+steggo plugin --kind kem         # 仅查看后量子 KEM 类
+```
+
+内置 25 个插件，分 7 类：**隐写算法**（lsb/dct/dwt/hugo/wow/uniward/anchored）、**载体类型**（image/audio/trailing/zerowidth/polyglot）、**对称加密**（aes-256-gcm/sm4-gcm）、**后量子 KEM**（ml-kem-768）、**容错编码**（reed-solomon）、**预设模板**（secrecy/balance/quality）、**安全工具**（three-factor/deniable/shamir/watermark/usb-key/container-sg）。
+
+第三方开发者可在代码中调用 `plugin.Register(plugin.Info{...})` 追加新插件，注册中心为并发安全实现，供发现、校验与生态扩展。
+
+---
+
 ## CLI 命令速查
 
 ### 嵌入秘密
@@ -191,12 +372,17 @@ steggo hide -c photo.png -s secret.txt -p "pass" -o steg.png
 ```
 
 常用参数：
-- `-a lsb|dct|dwt|hugo|wow|uniward` — 算法（默认 lsb）
+- `-a lsb|dct|dwt|hugo|wow|uniward|anchored` — 算法（默认 lsb）
 - `-b 1-4` — LSB 位深度（默认 1）
 - `--mask 7` — 通道掩码 bit0=R bit1=G bit2=B（默认 7=全开）
 - `--quality 8` — DCT 量化步长
 - `--levels 2` — DWT 分解级数
-- `--keyfile key.bin --machine` — 三因子
+- `--keyfile key.bin --machine --usb E:\usbkey` — 四因子
+- `--sm4` — SM4-GCM 国密算法
+- `--preset secrecy|balance|quality` — 算法参数预设模板
+- `--kyber-pub pub.kyb` — 后量子混合加密（ML-KEM-768，`kyber keygen` 生成）
+- `--ecc low|medium|high` — RS-ECC 容错编码
+- `--password-file pwd.txt` — 从文件读取密码（定时/非交互场景）
 - `--fake-file fake.txt --fake-pass "fake"` — 可否认
 - `--dir` — 打包目录嵌入
 - `--name custom.zip` — 自定义提取文件名
@@ -205,10 +391,12 @@ steggo hide -c photo.png -s secret.txt -p "pass" -o steg.png
 
 ```bash
 steggo extract -c steg.png -p "pass" -o ./out/
+steggo extract -c steg.png --kyber-priv priv.kyb -p "pass" -o ./out/
 ```
 
 - 未指定 `-a` 时自动扫描算法矩阵
 - V1 旧格式自动回退兼容
+- `--kyber-priv` 解封装后量子主密钥；`--ecc` 载荷自动纠错并输出修复统计
 
 ### 水印
 
@@ -222,6 +410,7 @@ steggo watermark extract -c wm.png
 ```bash
 steggo nested embed -c inner.png,middle.png,outer.png -s secret.txt -p pass -o ./
 steggo nested extract -c outer.png -d 3 -p pass -o ./
+steggo nested expand -c outer.png -p pass -o ./expanded    # 一键展开全部层级
 ```
 
 ### 审计
@@ -265,9 +454,23 @@ steggo zerowidth hide -c cover.txt -s secret.txt -p pass -o steg.txt
 steggo zerowidth extract -i steg.txt -p pass -o ./out/
 ```
 
-### 其他
+### .sg 容器 / 审计台账 / 批量任务 / 调度
 
 ```bash
+steggo sg create -i photo.png -o photo.sg -p pass [--sm4]
+steggo sg open -i photo.sg -o ./restored -p pass
+steggo ledger export -o audit.pdf
+steggo ledger verify -f audit.pdf
+steggo task run -f task.csv
+steggo schedule cron --carrier /data/x.png --output /backup --password-file /root/.pass
+```
+
+### 后量子 / 插件 / 其他
+
+```bash
+steggo kyber keygen -o pub.kyb -k priv.kyb   # 生成 ML-KEM-768 密钥对
+steggo kyber info                            # 查看后量子算法信息
+steggo plugin [--kind algorithm|carrier|crypto|kem|ecc|preset|tool]  # 插件注册中心
 steggo verify -f steg.png           # 完整性校验
 steggo info                         # 环境信息
 steggo version                      # 版本号
@@ -310,7 +513,7 @@ TUI 直接调用 `internal/service` 业务层，功能与 CLI 完全一致。
 
 | 标签页 | 功能 |
 |--------|------|
-| **嵌入** | 选择载体/秘密/输出，设置密码、算法（下拉选择 6 种）、位深度 1-4 |
+| **嵌入** | 选择载体/秘密/输出，设置密码、算法（下拉选择 7 种）、位深度 1-4 |
 | **提取** | 选择隐写载体，输入密码，自动扫描算法并展示结果 |
 | **水印** | 嵌入/提取版权标记，无需密码 |
 | **容量** | 选择图片，查看 1-4 位深度容量矩阵 |

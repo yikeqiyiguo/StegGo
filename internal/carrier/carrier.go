@@ -189,7 +189,7 @@ var (
 	magicID3  = []byte("ID3")
 	magicZIP  = []byte{'P', 'K', 0x03, 0x04}
 	magicEBML = []byte{0x1A, 0x45, 0xDF, 0xA3} // MKV / WEBM
-	magicFtyp = []byte("ftyp")                // MP4（偏移 4）
+	magicFtyp = []byte("ftyp")                 // MP4（偏移 4）
 )
 
 // extKind 扩展名兜底映射（魔数无法识别时的后备判断）。
@@ -298,6 +298,22 @@ func DetectKind(path string) (Kind, error) {
 		return KindUnknown, ErrLossyFormat
 	}
 	return KindUnknown, fmt.Errorf("%w: %s", ErrUnsupportedFormat, filepath.Base(path))
+}
+
+// IsJPEG 判断文件是否为 JPEG 图像（按魔数）。
+// 供提取侧放行有损格式使用：嵌入侧一律禁止有损载体，但特征点锚定与 DCT
+// 算法专为"发送至社交平台后被重压缩"的场景设计，需允许从 JPEG 提取。
+func IsJPEG(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	h := make([]byte, 3)
+	if n, err := f.Read(h); err != nil || n < 3 {
+		return false
+	}
+	return bytes.Equal(h, magicJPEG)
 }
 
 // DetectKindBytes 依据字节流前 16 字节检测载体类型（供套娃中间层使用）。

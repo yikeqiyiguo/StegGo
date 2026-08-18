@@ -2,7 +2,7 @@
 //
 // 背景：cmd/gui 是独立 Go module（replace steggo => ../..），
 // 受 internal 规则限制只能导入 steggo/pkg/...，无法直接使用
-// steggo/internal/service（V2 业务层：六算法嵌入/自动扫描提取/
+// steggo/internal/service（V2 业务层：七算法嵌入/自动扫描提取/
 // 水印/批量/Shamir 分权/容量/质量/自检审计）。
 //
 // 本包作为 pkg/steg 门面之上的 V2 封装，把 internal/service、
